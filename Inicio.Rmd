@@ -1,0 +1,76 @@
+---
+title: "CONAL CNPV 2018"
+output: 
+  flexdashboard::flex_dashboard:
+    logo: logo.png
+---
+
+```{r paquetes, include = FALSE}
+paquetes<-c("classInt","corrplot","d3heatmap","DT","factoextra","FactoMineR","foreign","ggplot2","gridExtra","heatmaply","Hmisc","knitr","leaflet","maps","maptools","NbClust","openxlsx","pander","plotly","raster","RColorBrewer","reshape2","rgdal","rgeos","RPostgreSQL","scales","sf","spatstat","spdep","VIM","viridis")
+# vector con los paquetes no instalados
+instalaciones<-paquetes[!paquetes %in% installed.packages()]
+# iteración para descargar los paquetes sin instalar
+for(libs in instalaciones) install.packages(libs)
+# carga de paquetes
+sapply(paquetes,require,character=TRUE)
+```
+
+
+```{r info, include = FALSE}
+#.rs.restartR()
+rm(list = ls())
+
+# alfanumerica
+inicial<-read.csv(choose.files(default = "E:/OTROS/AACONAL/Reporte/.csv",caption = "TRANSMISION en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE)
+
+grafica<-read.csv(choose.files(default = "E:/OTROS/AACONAL/Reporte/.csv",caption = "Fecha IET en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE)
+
+# geográfica
+CAPITALES<-readOGR(dsn="E:/CONAL_WEB/Geo",layer="CAPITALES",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+
+DPTOS_lin<-readOGR(dsn="C:/Geo",layer="Dptos_lin",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+#str(DPTOS@data)
+
+DPTOS<-readOGR(dsn="C:/Users/drgalindog/Downloads/VDAS_simpli",layer="Dpto_dis_join",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+str(DPTOS@data)
+
+MPIOSIni<-readOGR(dsn="C:/Geo",layer="Inicio",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+MPIOST<-readOGR(dsn="C:/Geo",layer="Transmision",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+
+CONAL<-readOGR(dsn="C:/Geo",layer="Seg_CONAL3",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8",integer64="allow.loss")
+
+#MPIOS<-readOGR(dsn="C:/Geo",layer="Transmision",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+#table(MPIOS$INICIO)[2]
+Trans<-MPIOST
+```
+
+Row {data-height=1000}
+-------------------------------------
+
+### Chart 1
+
+```{r}
+factpal <- colorFactor(c('#969696','#238443'), MPIOSIni$INICIO)
+
+map <- leaflet(data= CONAL) %>%
+  
+  ## Base group: default OpenStreetMap map tiles
+  addProviderTiles("OpenStreetMap.Mapnik") %>%  setView(-74.0382679, 4.3489054, zoom = 11) %>%
+  fitBounds(-78.201032746, 2.678125512, -71.6273344832, 11.552618168)%>%
+  
+  ## Overlay groups
+  addMarkers(clusterOptions = markerClusterOptions())%>%
+  addCircleMarkers(data=CAPITALES,radius = 2.2 ,stroke = FALSE, fillOpacity = 1, color = "#525252") %>%
+  addPolylines(data = DPTOS, stroke = TRUE, color = "#252525",opacity = 1, weight= 1) %>%
+  addPolygons(data = MPIOSIni, stroke = FALSE, fillOpacity = 0.8, fillColor = ~factpal(INICIO)) %>%
+
+  ## Layers control
+addLayersControl(overlayGroups = c("Requerimientos a CONAL","Capital departamental", "Municipios Fase 2"),
+    options = layersControlOptions(collapsed = FALSE))%>%
+
+  # Add legend
+  addLegend(pal = factpal, values = MPIOSIni$INICIO, opacity = 0.7, title = 'Estado   inicio',position = "bottomleft")
+
+map
+
+```

@@ -1,0 +1,530 @@
+---
+title: "Análisis de Componentes Principales de la información del Censo Nacional Agropecuario (DANE 2013 - 2014) "
+author: "Diana Galindo, Javier Jácome y Aníbal Montero"
+date: "31 de Enero de 2018"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    theme: flatly
+    highlight: haddock
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+subtitle: Reporte
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Instalación de paquetes.
+
+Se instalan los paquetes necesarios para realizar el análisis y diferentes herramientas de visualización.
+
+```{r, results="hide", message=FALSE, warning=FALSE}
+# Vector con paquetes a cargar
+paquetes<-c("ade4","Amelia","corrplot","factoextra","FactoMineR","foreign","ggplot2","gridExtra","Hmisc","RColorBrewer","reshape2","RPostgreSQL","knitr","openxlsx","NbClust","DT","d3heatmap","heatmaply","sf","viridis","leaflet","pander")
+# Vector con los paquetes no instalados
+instalaciones<-paquetes[!paquetes %in% installed.packages()]
+# Iteración para descargar los paquetes sin instalar
+for(libs in instalaciones) install.packages(libs)
+# carga de paquetes
+sapply(paquetes,require,character=TRUE)
+
+# Cambiar según ubicación de librería Rtools en el equipo de trabajo
+Sys.setenv("R_ZIPCMD"='C:/Rtools/bin/zip.exe') 
+```
+
+
+# 2. Importación de datos.
+
+El proceso para consolidar los datos por vereda y la selección temática de variables se explica en detalle en el [Documento técnico del estudio](\\dg_est103\INVESTIGACION\ESTUDIOS_POST_CNA\DOCUMENTOS\Desarrollo\r003_Doc_Result_EstPostCensal_CNA_4.docx).
+
+En este paso se importa el objeto que almacena los datos en un archivo de extensión _rda_ y se renombran las variables para facilitar su visualización. La tabla muestra las variables que se van a incluir en el ACP, su nombre original y el asignado en R.
+
+```{r, message=FALSE}
+# Del Script 20171220 se toma el objeto "resultado"
+load(file = "//dg_est103/INVESTIGACION/ESTUDIOS_POST_CNA/DESARROLLO/ACP/V5/resultado.rda")
+```
+
+```{r, echo=FALSE}
+#Almacenando los nombres originales del objeto resultado
+nom_ant<-names(resultado)
+
+#Renombrando variables (Alias) para ACP
+names(resultado)<-c("cod_vereda","s1_tot_upas","r_maq","t_maq","p_maq","r_s_cred","t_s_cred","p_s_cred","r_en_agro","t_en_agro","p_en_agro","t_tr_perm","t_trper_hogp","p_trper_hogp","r_tr_col","t_tr_col","p_tr_col","r_ten","t_t_prop","t_t_arr","t_t_otros","t_ten_col","p_t_prop","p_t_arr","p_t_otros","p_ten_col","r_accH2O","t_AcH2O","p_AcH2O","ar_cagroind","ar_semb","t_ar_uso_agro","t_ar_pastos","t_ar_agricola","t_ar_InfAgric","t_ar_rastrojo","ar_monoc","p_ar_pastos","p_ar_agricola","p_ar_InfAgric","p_ar_rastrojo","p_cagroind","p_monoc","t_viv_oc","m_vivxupa","r_afsalud","t_afsalud","p_afsalud","r_dforz","t_dforz","p_dforz","t_asist","r_asist","p_asist","t_mayo15","t_analf","p_analf","t_UAutoc","t_UTruequeVL","t_UVentaM","t_UGranM","p61_rta","p_UAutoc","p_UTruequeVL","p_UVentaM","p_UGranM","r_usoSRiego","t_usoSRiego","ProductResi","p_usoSRiego","m_escolar","p_muj")
+
+# Detalle
+det<-c("Código de vereda",
+"Total de UPAS",
+"Total de UPAS que respondieron a pregunta 117",
+"Total de UPAS que cuentan con maquinaria",
+"Proporción de UPAS que cuentan con maquinaria",
+"Total de UPAS que respondieron a la pregunta 136",
+"Total de UPAS que solicitaron crédito",
+"Proporción de UPAS que solicitaron crédito",
+"Total de UPAS que respondieron a la pregunta 133",
+"Total de UPAS que cuentan con energía agropecuaria",
+"Proporción de UPAS que cuentan con energía agropecuaria",
+"Total de trabajadores permanentes",
+"Total de trabajadores permanentes por hogar productor",
+"Proporción de trabajadores permanentes por hogar productor",
+"Total de UPAS que respondieron a la pregunta 141",
+"Total de UPAS que son trabajadas de forma colectiva",
+"Proporción de UPAS que son trabajadas de forma colectiva",
+"Total de UPAS que respondieron a la pregunta 39",
+"Total de UPAS que respondieron a la opción 'Propia' en la pregunta 39",
+"Total de UPAS que respondieron a la opción'Arriendo' en la pregunta 39",
+"Total de UPAS que respondieron a la opción 'Por usufructo','Comodato','' en la pregunta 39",
+"Total de UPAS que respondieron a la opción 'Colectiva' en la pregunta 39",
+"Proporción de UPAS en donde residen los propietarios del predio",
+"Proporción de UPAS que son arrendadas",
+"Proporción de UPAS que son para usufructo..",
+"Proporción de UPAS que presentan tenencia colectiva",
+"Total de UPAS que respondieron a la pregunta 124",
+"Total de UPAS que cuentan con acceso a agua (omitiendo agua lluvia y.",
+"Proporción de UPAS que cuentan con acceso a agua (omitiendo agua lluvia y.",
+"Total de área sembrada con cultivos agroindustriales (Has)",
+"Total de área sembrada (Has)",
+"Área total en uso agropecuario (Has)",
+"Total de área de pastos (Has)",
+"Total de área de uso agrícola (Has)",
+"Total de área con infraestructura agroindustrial (Has)",
+"Total de área con rastrojo (Has)",
+"Total de área con monocultivos (Has)",
+"Proporción de área en pastos",
+"Proporción de área agrícola",
+"Proporción de área en infraestructura agropecuaria",
+"Proporción de área en rastrojo",
+"Proporción de área en cultivos agroindustriales",
+"Proporción de área en monocultivos",
+"Total de viviendas ocupadas",
+"Promedio de viviendas por UPA",
+"Total de UPAS que respondieron a la pregunta 176",
+"Total de personas que se encuentran afiliados al sistema de salud",
+"Proporción de personas que se encuentran afiliados al sistema de salud",
+"Total de UPAS que respondieron a la pregunta 179",
+"Total de.. desplazamiento o abandono forzado",
+"Proporción de personas que ..",
+"Total de UPAS que recibieron al menos una vez asistencia o asesoría técnica",
+"Total de UPAS que respondieron a la pregunta 135",
+"Proporción de UPAS que recibieron al menos una vez asistencia o asesoría técnica",
+"Total de personas mayores de 15 años",
+"Total de personas mayores de 15 años que son analfabetas",
+"Proporción de personas mayores de 15 analfabetas",
+"Total de UPAS que respondieron a la opción 'Autoconsumo' en la pregunta 61",
+"Total de UPAS que respondieron a la opción 'Trueque o venta' en la pregunta 61",
+"Total de UPAS que respondieron a la opción 'Venta a mercado' en la pregunta 61",
+"Total de UPAS que respondieron a la opción 'Venta a gran mercado' en la pregunta 61",
+"Total de UPAS que respondieron a la pregunta 61",
+"Proporción de UPAS con autoconsumo",
+"Proporción de UPAS con trueque o venta",
+"Proporción de UPAS con venta a mercado",
+"Proporción de UPAS con venta a gran mercado",
+"Total de UPAS que respondieron a la pregunta 52",
+"Total de UPAS que usan sistemas de riego",
+"Total de productores residentes",
+"Proporción de UPAS que usa sistemas de riego",
+"Promedio de años de escolaridad de los residentes mayores de 15 años",
+"Proporción de mujeres")
+
+nmcols<-cbind(seq(1:72),nom_ant,colnames(resultado),det)
+datatable(nmcols[c(1,5,8,11,12,14,17,23:26,29,31,38:43,45,48,51,54,57,63:66,70:72),], colnames=c("Nro.","Inicial","Alias en R","Detalle (por vereda)"),options = list(pageLength = 20),caption = "Nombres iniciales de variables y alias en R para análisis")
+
+```
+
+El objeto original "resultado" almacena todas las variables tomadas y calculadas para el análisis de información del Censo Nacional Agropecuario. El primer filtro remueve las variables originales con las que se calcularon las tasas y deja solamente aquellas que se van a incorporar en el ACP. El objeto que almacena los datos a utilizar en el ACP se llama _filtro1_.
+
+## 2.1. Depuración de datos
+
+Con el código presentado a continuación, primero se filtran las variables a entrar en el análisis, se verifica si tiene datos faltantes y se genera un objeto que almacena los datos sin las observaciones faltantes _filtro2_.
+
+```{r pander, message=FALSE, warning=FALSE, results= 'asis'}
+# Filtro 1: Variables escogidas (Proporciones)
+filtro1<-resultado[,c(1,5,8,11,12,14,17,23:26,29,31,38:43,45,48,54,57,63:66,69:72)]
+
+# Generando gráfico de datos faltantes
+etq<-vector(mode="character", length=dim(filtro1)[1])
+md<-sapply(filtro1, function(x) sum(length(which(is.na(x)))))
+par(oma=c(1,0,0,0))
+missmap(filtro1, rank.order=T,col=c("#b2182b", "grey"),x.cex = 0.7, 
+	y.cex = 0.2, main = "Datos faltantes", legend = TRUE,cex.main=0.7,
+	y.labels=etq)
+
+#Identificando número de faltantes por variable
+pander(md[md>0])
+```
+
+El conjunto de datos inicial (filtro1) cuenta con información de 30 variables y 30.138 individuos (veredas). Presenta 1.135 datos faltantes en la variable "promedio de años de escolaridad", 532 en la variable "Porcentaje de UPAS con acceso a Agua" y 366 veredas presentan datos faltantes en ambas variables. 
+
+Los datos faltantes corresponden a las veredas donde no se respondieron las preguntas asociadas a las variables. Al considerar que el total de veredas con datos faltantes (1.301) representan el 4.31% del total de datos iniciales, se remueven dichas veredas para generar el ACP. Se genera el objeto que almacena la base de datos que se utiliza para el Análisis _filtro2_ y que representa información de 28.837 veredas y 30 variables. 
+
+```{r,message=FALSE, warning=FALSE}
+# Removiendo las veredas con datos faltantes
+mapa<-subset(filtro1,complete.cases(filtro1))
+filtro2<-subset(filtro1,complete.cases(filtro1))
+rownames(filtro2)<-filtro2$cod_vereda
+filtro2<-filtro2[,c(2:31)]# Removiendo el cod_vereda
+
+```
+
+El mapa muestra en color verde las veredas que fueron incluidas del ACP por tener y en gris que no fueron incluidas. Ésta condición puede darse, entre otras razones, porque este estudio considera solo las UPA y no las UPNA.
+
+```{r, message=FALSE, results="hide"}
+
+all_shape_addresses <- list.files(path="E:/VEREDAS_V27", pattern = ".shp", full.names =T, recursive = TRUE)
+files_list <- lapply(all_shape_addresses, st_read)
+versincl<-files_list[[6]]
+departa<-files_list[[1]]
+dpt = st_geometry(departa)
+
+plot(versincl["Incluida"], border = adjustcolor( "red", alpha.f = 0), axes = TRUE, key.size = lcm(4.5), main = "Localización de veredas incluidas en el ACP")
+plot(dpt, add = TRUE, cex = .5, border = "#636363")
+
+```
+
+
+# 3.Análisis preliminar 
+
+Para iniciar el Análisis, se generan los histogramas de las variables, éstos muestran la distribución de los datos por variable. La línea de color azul muestra la mediana de los datos y la función de densidad de los datos de forma sombreada.
+
+```{r, message=FALSE}
+filtro2o<-filtro2[,c(1:3,11,15,21,28,19:16,14:12,4:6,27,23:26,7:10,20,22,29:30)]
+a<-names(filtro2o)
+a<-as.list(a)
+fun02<-function(i){index=grep(i,names(filtro2))
+                   bw <- nclass.Sturges(filtro2[,index]) # Freedman-Diaconis
+                   nm=paste0(i)
+                   assign(paste("g",i,sep=""),
+                   ggplot(filtro2, aes(filtro2[,index])) +  
+                   geom_histogram(bins = bw,aes(y=..density..), fill="#de2d26") +
+                   geom_density(alpha=.35, fill="#08519c",color = NA)  +
+                   geom_vline (aes(xintercept=median(filtro2[,index])),
+            color="#08519c", size=1) + 
+                   labs(title=nm, x=NULL, y="UPAS")) +
+                   theme(plot.title = element_text(size = rel(0.7),face ="bold",hjust = 0.5),
+                        axis.title.y = element_text(size = rel(0.4)),
+                        axis.text = element_text(size = rel(0.4)))
+                   }
+Histos<-lapply(a,fun02)
+do.call(grid.arrange, Histos)
+summary(filtro2o)
+```
+De los histogramas podemos notar el comportamiento de los valores de las variables que entran al análisis:
+
+* El porcentaje de las UPAS por vereda que usa maquinaria que ha solicitado de crédito o asistencia técnica, cuenta con energía agropecuaria tiende a ser bajo, en algunas pocas veredas se puede presentar un alto porcentaje.
+
+* El porcentaje de área en infraestructura agropecuaria es muy bajo y tiende a ser cero en todo el país.
+
+* Las veredas presentan un rango amplio de valores en variables que describen el uso de sistemas de riego.
+
+* Evaluando el uso de monocultivos y cultivos agroindustriales se puede ver que en ambos casos predominan porcentajes bajos, sin embargo, en el caso del monocultivo alrededor del 2% de las veredas presentan solamente monocultivos.
+
+* La proporción de las áreas de pastos, de uso agrícola y de rastrojo es complementaria. Cada una de estas variables presentan una proporción media alrededor del 25% por vereda.
+
+* Se destaca el histograma de la proporción de área sembrada que presenta valores porcentajes muy bajos por vereda.
+
+* El valor de porcentaje de trabajadores permanentes que pertenecen al hogar productor varia por vereda. Caso contrario al de trabajadores permanentes que presenta valores bajos en la mayoría de los casos.
+
+* La proporción de UPAS que producen para el autoconsumo varía en todas las veredas. Los dos extremos, 0% y 100% existe agrupa una cantidad significativa del total de veredas. El análisis espacial permite determinar donde se puede dar este comportamiento.
+
+* Es común encontrar valores altos en la proporción de UPAS con ventas a mercados y grandes mercados. En contraste, la proporción de UPAS que hacen trueque es muy baja en las veredas.
+
+* En la proporción de veredas con trabajo colectivo se encuentran predominantemente valores bajos pero pueden presentar valores altos atípicos. 
+
+* La mayoría de veredas presenta una alta proporción de afiliados al sistema de salud.
+
+* Existe una alta proporción de UPAS por vereda con tenencia propia, los otros tipos de tenencia (por arriendo, colectiva y otros tipos de tenencia) presentan valores predominantemente bajos.
+
+* El promedio de años de escolaridad a nivel nacional está cercano a los 5 y encontrar veredas donde el promedio de años de escolaridad sea mayor a 10 años no es común aunque en algunos casos se puede dar. Por su parte, la proporción de analfabetismo es baja en general aunque puede llegar a alcanzar el 50% o valores superiores en casos aislados.
+
+* El dato medio de las veredas analizadas en este estudio presentan una proporción de mujeres cercana al 50%.
+
+También se calculan las correlaciones entre las variables para verificar si algunas de ellas se explican entre sí. La siguiente gráfica muestra una ilustración de la matriz de correlaciones (Para ver el coeficiente de correlación pase el mouse por la celda correspondiente).
+
+```{r, message=FALSE, echo=FALSE}
+cor_org<-cor(filtro2o)
+colscor<-c("#00008b","#6495ed","#ff7256","#8b0000")
+par(xpd=TRUE)
+corrplot(round(cor_org, 3),method = 'number',
+	   addCoefasPercent = TRUE,type="lower",
+	   number.cex = 0.5,tl.col="gray31",tl.cex=0.45, col=colscor,
+	   mar=c(2,0,1,0),oma=c(0,0,0,1),
+	   cl.ratio=0.08,cl.cex=0.5,cl.align="l")
+title("Matriz de correlaciones", cex.main=0.8)
+```
+
+```{r, message=FALSE}
+# Obteniendo la matriz de correlaciones iniciales
+cor_org<-cor(filtro2o)
+
+# Generando representación interactiva de la matriz de correlación
+d3heatmap(round(cor_org, 2),symm=TRUE,colors="RdYlBu",revC=TRUE,dendrogram="none",cexRow=0.6,cexCol=0.6, main="Matriz de correlaciones")
+
+```
+
+Esta matriz muestra varias correlaciones lineales entre algunas de las variables:
+* Positiva entre: 
+    + El porcentaje de acceso a agua y el porcentaje de uso de maquinaria.
+    + El porcentaje de solicitud de crédito y de asistencia técnica.
+    + El porcentaje de solicitud de asistencia técnica y área agrícola.
+    + Los porcentajes de tenencia y trabajo colectivo.
+    + El número de productores residentes y el área sembrada.
+  
+* Positiva entre: 
+    + El porcentaje de analfabetismo y el promedio de años de escolaridad.
+    + El porcentaje de área agrícola y área de pastos
+
+# 4. Análisis de Componentes Principales (ACP)
+
+## 4.1 ACP Robusto
+
+Según... Para que el ACP robusto Paquete rrcov
+
+
+```{r, size ='tiny'}
+b4<-resultado[,c("cod_vereda",colnames(resultado)[grepl("p_",colnames(resultado))])]
+names(b4)
+rownames(b4)<-b4$cod_vereda
+str(b4)
+b4<-b4[,c(2:15,17:23)] # Sacando desplforzado 
+head(b4)
+str(b4)
+summary(b4)
+
+#Componentes robustos
+rpc<-princomp(b4, covmat = MASS::cov.rob(b4),scores=TRUE)
+rpcres<-get_pca(rpc, element = c("var", "ind"))
+rpcres
+fviz_eig(rpc,addlabels = TRUE,xlab="Componentes",ylab="% de varianzas explicadas rpca")
+datatable(round(get_eig(rpc),3), options = list(pageLength = 10),
+          caption = "Valores propios y varianza explicada rpca-b1")
+corrplot(rpcres$cos2,is.corr=FALSE,number.cex = 0.5,tl.col="gray31",tl.cex=0.5,
+	   cl.ratio=0.30,cl.cex=0.35, cl.align="c",mar=c(0,1,1,0),title="Calidad de representación (variables) rpca-b1",cex.main=0.7,col=colscor2)
+fviz_pca_var(rpc, col.var = "contrib",repel=TRUE,labelsize = 2,gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),title= "Círculo de Correlaciones (Componentes 1 y 2) rpca-b1", legend.title= paste0("Cos2",'\n',"(var)"))
+fviz_pca_biplot(rpc,axes=c(1,2), ggtheme = theme_minimal(),labelsize=2,col.ind = "gray67",geom.var = c("point", "text"),pointshape = 19)
+
+```
+
+
+## 4.2. ACP Convencional
+
+Se calculan los componentes principales del conjunto de datos.
+
+```{r, message=FALSE}
+pc1<-PCA(filtro2, scale.unit=TRUE,ncp=15,graph=FALSE)
+pcprueba<-princomp(filtro2)
+```
+
+Tambien, se calculan los valores propios y el porcentaje de varianza retenida por cada componente.
+
+```{r, message=FALSE}
+datatable(round(pc1$eig,3), options = list(pageLength = 10),
+          caption = "Valores propios y varianza explicada por cada componente del ACP")
+```
+
+A continuación, el gráfico de sedimentación (_Scree Plot_). Hay varios "codos" en el gráfico de barras, entre los componentes 2 y 3, entre los componentes 4 y 5 y entre los componentes 6 y el 7. De acuerdo con la tabla anterior, en el pri
+
+
+
+
+```{r, message=FALSE}
+fviz_eig(pc1,addlabels = TRUE,xlab="Componentes",ylab="% de varianza explicada")
+```
+
+A continuación se presenta el círculo de correlaciones del primer plano factorial
+
+```{r, message=FALSE}
+fviz_pca_var(pc1,col.var="cos2",geom=c("point","text"),repel=TRUE,labelsize = 3,gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),title= "Correlation circle", legend.title= paste0("Cos2",'\n',"(var)"), legend=c("bottom"),font.legend = c(8, "plain", "#252525"),xlab="Comp.1(10%)",ylab="Comp.2(9.1%)")
+
+```
+
+
+
+Con el fin de evaluar el número de componentes a elegir, tambien se genera el gráfico de correlación de variables con cada una de las componentes principales. 
+
+
+
+
+```{r, message=FALSE}
+corrplot(pc1$var$cor,cex.main=0.7,method = c("square"),number.cex = 0.5,tl.cex=0.7,tl.col="gray31",cl.align="c",tl.offset = 0.1,col = rev(brewer.pal(5, "RdBu")))
+```
+
+
+Con base en la información descrita anteriormente, para este estudio se seleccionaron los primeros cuatro componentes.
+
+4.1 Calidad general de representación del modelo escogido
+
+```{r}
+colscor3=brewer.pal(9, 'Greens')
+mcor<-pc1$var$cos2[,1:4]
+colnames(mcor)<-c("Comp.1","Comp.2","Comp.3","Comp.4")
+corrplot(pc1$var$cos2[,1:6],is.corr=FALSE,number.cex = 0.5,tl.col="gray31",tl.cex=0.5,
+	   cl.ratio=0.25,cl.cex=0.5, cl.align="l",mar=c(0,0,1.5,0),title="Representación de las variables",cex.main=0.7,col=colscor3)
+
+corrplot(mcor,cex.main=0.7,method = c("square"),number.cex = 0.5,tl.cex=0.7,tl.col="gray31",cl.align="l",tl.offset = 0.1,col = rev(brewer.pal(5, "RdBu")),cl.cex=0.6,cl.ratio=0.5)
+```
+El anterior diagrama representa de forma comparativa la calidad de la representación de cada una de las variables de análisis en cada uno de los cuatro factores del modelo de componentes principales, la intensidad del color y el tamaño de los círculos está relacionado al porcentaje de inercia de la variable que fue retenida por el factor [Pardo et. al. 2009], de esta forma y en primera medida se puede asociar cada una de las variables a los diferentes factores latentes del modelo que las están explicando.
+
+```{r, results= "hide"}
+x1 <- t(cumsum(as.data.frame(t(pc1$var$cos2[,1:4]))))
+x1 <- as.data.frame(x1[order(-x1[,4]),])
+x1$variable <- factor(rownames(x1), levels=rownames(x1)[order(-x1$Dim.4)] )
+
+
+#barplot(x,las=2,cex.lab=0.5)
+
+p <- ggplot(data=x1, aes(x=variable, y=Dim.4)) +
+  geom_bar(stat="identity", fill="#E7B800") +
+  scale_y_continuous(labels = scales::percent) +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    axis.title.x= element_blank()) + labs(title = "Calidad de representación de las variables en el ACP escogido", y = "Calidad")
+p
+```
+
+El anterior resumen muestra la calidad de la representación de las variables en el modelo elegido de cuatro factores, estos porcentajes se basan en las estadísticas de calidad de representación por factor mostradas en el diagrama de círculos y permite identificar las variables que tienen menor relación lineal con el conjunto general de variables. Por ejemplo, tatatá. cabe anotar que, para el objetivo del análisis, se asume que los factores escogidos son el resumen general de las 30 variables de análisis.
+
+Calidad por componente
+
+
+```{r, size ='tiny', results="hide"}
+listpl<-list()
+for (i in 1:4){
+                tmpnm<-paste("varcontComp",i,sep="")
+                assign(tmpnm,fviz_contrib(pc1, choice = "var", axes = i, top = 14, fill = "#fe9929", color = "#E7B800",font.tickslab = c(12), xtickslab.rt=90)+labs(title = paste("Contribución componente",i), x = "", y = ""))
+		    listpl[[tmpnm]] <- get(tmpnm)
+              }
+#do.call(grid.arrange, listpl)
+
+
+cpsel<-data.frame(pc1$var$contrib[,1:4])
+cpsel$Variable<-rownames(cpsel)
+
+long<-melt(cpsel,id.vars="Variable")
+long$value<-round(long$value,2)
+cpsel2<-split(long,long$variable)
+
+
+fun03<-function(x){a<-x[order(-x$value),c(1,3)]
+                   b<-a[a$value>=(100/30),]}
+lcpsel<-lapply(cpsel2,fun03)
+
+fun05<-function(x,y){print(x);kable(y, caption = "Contribución por variable")}
+lapply(listpl,fun05,lcpsel)
+
+
+fun06<-function(x){nomcp<-x[,1]
+                   indi <- match(nomcp, rownames(cor_org))
+                   corrplot(round(cor_org[indi,indi],2),method = 'number',
+	                 addCoefasPercent = TRUE,type="lower",
+	                 number.cex =0.9,tl.col="gray31",tl.cex=0.7, col=colscor,
+	                 mar=c(2,0,1,0),oma=c(0,0,0,1),
+	                 cl.ratio=0.08,cl.cex=0.7,cl.align="l")
+                  }
+lapply(lcpsel,fun06)
+
+```
+
+El anterior esquema nos muestra en cada gráfico la organización de las variables por su contribución en inercia a cada componente, resalta las variables que contribuyen a la inercia del componente por encima del promedio por variable (es decir 1 dividido entre 8 variables: 3.57% ). Cabe mencionar que el resto de variables que no se encuentran incluidas dentro de los grupos de mayor contribución se pueden interpretar también a la luz del modelo de componentes, lo cual es su objetivo dentro de la investigación.
+
+
+```{r}
+cont1 <- pc1$var$contrib[order(-pc1$var$contrib[,1]),1]
+cont1 <- cont1[cont1>(100/29)]
+kable(round(cont1,2), caption = "Contribución por variable (Componente 1)")
+
+cont2 <- pc1$var$contrib[order(-pc1$var$contrib[,2]),2]
+cont2 <- cont2[cont2>(100/29)]
+print("Componente 2")
+print(cont2,digits = 2)
+
+cont3 <- pc1$var$contrib[order(-pc1$var$contrib[,3]),3]
+cont3 <- cont3[cont3>(100/29)]
+print("Componente 3")
+print(cont3,digits = 2)
+
+cont4 <- pc1$var$contrib[order(-pc1$var$contrib[,4]),4]
+cont4 <- cont4[cont4>(100/29)]
+print("Componente 4")
+print(cont4,digits = 2)
+
+```
+
+Los anteriores son los porcentajes de contribución a la inercia del componente con una inercia superior a la contribución promedio por variable.
+
+```{r, echo=FALSE}
+## Circulos de correlaciones de todos los planos factoriales
+listplan<-list()
+m <- combn(1:4, 2)
+colnames(m) <- letters[1:6]
+colscor2=c("#00AFBB", "#E7B800", "#FC4E07")
+for(i in 1:length(colnames(m))){
+tmp<-m[,i]
+nm<-paste0("plan",i)
+assign(nm,
+fviz_pca_var(pc1,axes = tmp,col.var="cos2",geom=c("point","text"),gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),repel=TRUE,labelsize = 3))
+listplan[[nm]] <- get(nm)
+print(listplan[[nm]])
+}
+
+```
+
+
+Debido a que el modelo de componente principales tiene seis componentes, no es práctica la utilización de biplots para la interpretación de los resultados, al ser cuatro componentes se obliga a que se haga una lectura de 3 espacios factoriales de 3dsimensiones o a 6 planos factoriales de 2 dimensiones. Por esto se ha optado, para una mayor facilidad: tipificar, caracterizar y perfilar las variables dentro de cada componente con su lectura individual (tal y como en el análisis de Carlos).
+
+
+Gráfico por individuos
+
+```{r}
+scv<- scale(pc1$var$coord)
+#fviz_nbclust(scv, kmeans, method = "gap_stat")
+#fviz_nbclust(scv, kmeans, method = "silhouette")
+#fviz_nbclust(scv, kmeans, method = "wss")
+# Número de clusters 8
+
+set.seed(1)
+vcoordcl <- kmeans(pc1$var$coord, centers = 2, nstart = 40)
+grp <- as.factor(vcoordcl$cluster)
+
+fviz_pca_biplot(pc1,axes=c(1,2), col.var=grp,palette = c("#228B22", "#5D478B"),ggtheme = theme_minimal(),labelsize=2,col.ind = "gray67",geom.var = c("point", "text"),pointshape = 19)
+
+```
+
+Se exportan los resultados:
+```{r, echo=FALSE}
+#Exportar coordenadas por plano para variables y veredas
+
+#coord.var<-pc1$var$coord
+#coord.var<-cbind(coord.var,row.names(coord.var))
+#colnames(coord.var)[dim(coord.var)[2]]<-c("nombvar")
+#saveRDS(coord.var,"ACP_CoordVars.rds")
+#save(coord.var,file="ACP_CoordVars.rda")
+
+#coord.ind<-pc1$ind$coord
+#coord.ind<-cbind(coord.ind,row.names(coord.ind))
+#colnames(coord.ind)[dim(coord.ind)[2]]<-c("cod.vereda")
+#saveRDS(coord.ind,"ACP_CoordInd.rds")
+#save(coord.ind,file="ACP_CoordInd.rda")
+
+#DatosxVereda<-cbind(filtro2,row.names(filtro2))
+#colnames(DatosxVereda)[dim(DatosxVereda)[2]]<-c("cod.vereda")
+#saveRDS(DatosxVereda,"ORG_DatosInd.rds")
+#save(DatosxVereda,file="ORG_DatosInd.rda")
+
+#getwd()
+#write.xlsx(coord.ind, "coord_filas_ACPv6.xlsx")
+#write.xlsx(coord.var, "coord_columnas_ACPv6.xlsx")
+#write.xlsx(DatosxVereda,"DatosxVereda_ACPv6.xlsx")
+```
+
+ 
+# Referencias
+
+* _Geometría euclidiana en estadística: métodos en ejes principales. Pardo, C.E.
+  Consultado en: http://www.docentes.unal.edu.co/cepardot/docs/Conferencias/ACPgeometriaEuclidiana.pdf. Fecha: Noviembre de 2017.
+  
+* _Principal Component Methods in R: Practical Guide_. Kassambara A. Consultado en: http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/112-pca-principal-component-analysis-essentials/. Fecha: Noviembre de 2017.
+

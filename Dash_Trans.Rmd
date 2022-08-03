@@ -1,0 +1,141 @@
+---
+title: "Seguimiento CNPV 2018"
+author: CONAL
+output: 
+  flexdashboard::flex_dashboard:
+    theme: sandstone
+---
+
+```{r paquetes, include = FALSE}
+paquetes<-c("classInt","corrplot","d3heatmap","DT","factoextra","FactoMineR","foreign","ggplot2","gridExtra","heatmaply","Hmisc","knitr","leaflet","maps","maptools","NbClust","openxlsx","pander","plotly","raster","RColorBrewer","reshape2","rgdal","rgeos","RPostgreSQL","scales","sf","spatstat","spdep","stringr","VIM","viridis")
+# vector con los paquetes no instalados
+instalaciones<-paquetes[!paquetes %in% installed.packages()]
+# iteraciÃ³n para descargar los paquetes sin instalar
+for(libs in instalaciones) install.packages(libs)
+# carga de paquetes
+sapply(paquetes,require,character=TRUE)
+```
+
+```{r info, include = FALSE}
+#.rs.restartR()
+# gc()
+rm(list = ls())
+
+# alfanumerica
+inicial<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "TRANSMISION en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+
+grafica<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "Fecha IET en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+
+# consolidado requerimientos
+reqconal<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "Consolidado requerimientos en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+str(reqconal)
+
+# Coordenadas cabeceras
+cab_coord<-read.table("C:/Geo/Cabeceras_Coords.txt", encoding = 'UTF-8',header=TRUE,sep="\t", dec=",",stringsAsFactors= FALSE)
+cab_coord$DIVIPOLA<-str_sub(cab_coord$CODIGO_MUN,start=-5)
+cab_coord$div_int<-as.numeric(cab_coord$DIVIPOLA)
+
+# geografica
+CAPITALES<-readOGR(dsn="C:/Geo",layer="Capitales",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+
+DPTOS_lin<-readOGR(dsn="C:/Geo",layer="Dptos_lin",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+#str(DPTOS@data)
+
+DPTOS<-readOGR(dsn="C:/Geo",layer="Dpto_dis_join",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+str(DPTOS@data)
+
+MPIOSIni<-readOGR(dsn="C:/Geo",layer="Inicio",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+MPIOST<-readOGR(dsn="C:/Geo",layer="Transmision",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+
+#CONAL<-readOGR(dsn="C:/Geo",layer="Seg_CONAL3",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8",integer64="allow.loss")
+
+#MPIOS<-readOGR(dsn="C:/Geo",layer="Transmision",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+#table(MPIOS$INICIO)[2]
+Trans<-MPIOST
+```
+
+
+```{r calculos, include = FALSE}
+names(Trans@data)
+Trans@data<-data.frame(as(Trans,"data.frame"),inicial[match(Trans@data[,"div_int"],inicial[,"ID_MPIO"]),])
+Trans$Porcentaje <- (Trans$TRANSMITIDAS.A / Trans$NOTIFICADAS.B ) * 100.00
+Trans@data<-Trans@data[,c("OBJECTID","NOM_MUNICI","COD_MPIO","div_int","ID_DEPTO","DEPARTAMENTO","TRANSMITIDAS.A","NOTIFICADAS.B","Porcentaje")]
+names(Trans@data)
+#Trans@data<-Trans@data[,c(1:3)]
+writeOGR(obj=Trans, dsn="C:/Geo/Transmision_180526.shp",layer="Transmision_180526",driver="ESRI Shapefile",encoding="UTF-8",verbose=TRUE,overwrite_layer=TRUE)
+
+pal <- brewer.pal(4, "RdYlGn")
+pal <- colorRampPalette(pal)
+palData <- classIntervals(Trans$Porcentaje, n=4, style="fixed",fixedBreaks=c(0.01,90,100,max(Trans@data$Porcentaje,na.rm = TRUE)))
+Trans$colors <- findColours(palData, pal(100))
+
+
+```
+
+
+Column {data-width=675}
+-----------------------------------------------------------------------
+
+### Donde se ha iniciado la operaciÃ³n
+
+```{r}
+factpal <- colorFactor(c('#969696','#238443'), MPIOSIni$INICIO)
+
+map <- leaflet(data= CONAL) %>%
+  
+  ## Base group: default OpenStreetMap map tiles
+  addProviderTiles("OpenStreetMap.Mapnik") %>%  setView(-74.0382679, 4.3489054, zoom = 11) %>%
+  fitBounds(-78.201032746, 2.678125512, -71.6273344832, 11.552618168)%>%
+  
+  ## Overlay groups
+  addMarkers(clusterOptions = markerClusterOptions())%>%
+  addCircleMarkers(data=CAPITALES,radius = 2.2 ,stroke = FALSE, fillOpacity = 1, color = "#525252") %>%
+  addPolylines(data = DPTOS_lin, stroke = TRUE, color = "#252525",opacity = 1, weight= 1) %>%
+  addPolygons(data = MPIOSIni, stroke = FALSE, fillOpacity = 0.8, fillColor = ~factpal(INICIO)) %>%
+
+  ## Layers control
+addLayersControl(overlayGroups = c("Requerimientos a CONAL","Capital departamental", "Municipios Fase 2"),
+    options = layersControlOptions(collapsed = FALSE))%>%
+
+  # Add legend
+  addLegend(pal = factpal, values = MPIOSIni$INICIO, opacity = 0.7, title = 'Estado   inicio',position = "bottomleft")
+
+map
+
+```
+
+Column {data-width=325}
+-----------------------------------------------------------------------
+
+### Categorías
+
+```{r}
+factpal <- colorFactor(c('#54278f', '#807dba', '#9e9ac8','#9e9ac8'), Trans$Porcentaje)
+#pal <- colorQuantile(palette = "RdYlBu", domain = breaks_trans, n = 3, reverse = TRUE)
+
+mapTrans <- leaflet(data= CAPITALES) %>%
+  
+  ## Base group: default OpenStreetMap map tiles
+ addProviderTiles("OpenStreetMap.Mapnik") %>%  setView(-74.0382679, 4.3489054, zoom = 11) %>%
+fitBounds(-78.201032746, 2.678125512, -71.6273344832, 11.552618168)%>%
+  
+  ## Overlay groups
+ addCircleMarkers(radius = 2.2 ,stroke = FALSE, fillOpacity = 1, color = "#525252") %>%
+ addPolylines(data = DPTOS_lin, stroke = TRUE, color = "#252525",opacity = 1, weight= 1) %>%
+ addPolygons(data = Trans, stroke = FALSE, fillOpacity = 0.8, fillColor = ~factpal(Porcentaje)) %>%
+  
+  ## Layers control
+  addLayersControl(overlayGroups = c("Capitales", "Municipios Fase 2"),options = layersControlOptions(collapsed = FALSE))
+
+  # Add legend
+  addLegend(pal = factpal, values = Trans$Porcentaje, opacity = 0.7, title = '% TransmisiÃ³n',position = "bottomleft")
+# ~colors
+mapTrans
+
+```
+
+### Inicio operación
+
+```{r}
+
+```

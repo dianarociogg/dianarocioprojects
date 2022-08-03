@@ -1,0 +1,164 @@
+---
+title: ""
+output: 
+  flexdashboard::flex_dashboard:
+    theme: bootstrap
+    logo: Logo2.png
+    #favlogo: Logo3.png
+---
+
+```{r paquetes, include = FALSE}
+paquetes<-c("classInt","corrplot","flexdashboard","d3heatmap","DT","factoextra","FactoMineR","foreign","ggplot2","gridExtra","heatmaply","Hmisc","knitr","leaflet","maps","maptools","NbClust","openxlsx","pander","plotly","raster","RColorBrewer","reshape2","rgdal","rgeos","RPostgreSQL","scales","sf","spatstat","spdep","stringr","VIM","viridis")
+# vector con los paquetes no instalados
+instalaciones<-paquetes[!paquetes %in% installed.packages()]
+# iteración para descargar los paquetes sin instalar
+for(libs in instalaciones) install.packages(libs)
+# carga de paquetes
+sapply(paquetes,require,character=TRUE)
+```
+
+```{r infoalfa, include = FALSE}
+#.rs.restartR()
+# gc()
+rm(list = ls())
+
+# alfanumerica
+inicial<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "TRANSMISION en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+
+grafica<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "Fecha IET en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+
+# consolidado requerimientos
+reqconal<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "Consolidado requerimientos en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+str(reqconal)
+
+# Coordenadas cabeceras
+cab_coord<-read.table("C:/Geo/Cabeceras_Coords.txt", encoding = 'UTF-8',header=TRUE,sep="\t", dec=",",stringsAsFactors= FALSE)
+cab_coord$DIVIPOLA<-str_sub(cab_coord$CODIGO_MUN,start=-5)
+cab_coord$div_int<-as.numeric(cab_coord$DIVIPOLA)
+cab_coord<-cab_coord[,c(6,7,4,5)]
+str(cab_coord)
+
+str(reqconal)
+reqconal$DIVIPOLA<-ifelse(nchar(reqconal$Código.del.municipio) == 5,reqconal$Código.del.municipio, paste0(reqconal$Código.departamento,"001"))
+reqconal$div_int<-as.numeric(reqconal$DIVIPOLA)
+CONAL<-merge(reqconal,cab_coord,by="div_int")
+CONALDF<-CONAL[,c(2:17,21:23)]
+str(CONALDF)
+CONALPto<-st_as_sf(CONAL, coords = c("Longitud", "Latitud"),crs = 4326, agr = "constant")
+```
+
+```{r infoalfa2, include = FALSE}
+#Inicio
+MunF2<-read.table("Municipios FaseII.csv",header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+MunF3<-read.table("MUNICIPIOS FASEIII.csv",header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+Inicio<-rbind(MunF2,MunF3)
+table(Inicio$INICIO.OPERACIÓN)
+```
+
+```{r infogeo, include = FALSE}
+# geografica
+CAPITALES<-readOGR(dsn="C:/Geo",layer="Capitales",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+
+DPTOS_lin<-readOGR(dsn="C:/Geo",layer="Dept_lin",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+#str(DPTOS@data)
+
+DPTOS<-readOGR(dsn="C:/Geo",layer="Departamentos",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+str(DPTOS@data)
+
+MPIOS<-readOGR(dsn="C:/Geo",layer="Inicio",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+MPIOSIni<-MPIOS
+MPIOST<-readOGR(dsn="C:/Geo",layer="Transmision",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+Trans<-MPIOST
+```
+
+
+```{r calculos, include = FALSE}
+#Transmision
+names(Trans@data)
+Trans@data<-data.frame(as(Trans,"data.frame"),inicial[match(Trans@data[,"div_int"],inicial[,"ID_MPIO"]),])
+Trans$Porcentaje <- (Trans$TRANSMITIDAS_A / Trans$NOTIFICADAS_B ) * 100.00
+Trans@data<-Trans@data[,c("OBJECTID_1","MUNICIPIO","ID_MPIO","div_int","COD_DEPART","DEPARTAMENTO","TRANSMITIDAS_A","NOTIFICADAS_B","Porcentaje")]
+names(Trans@data)
+writeOGR(obj=Trans, dsn="C:/Geo/Transmision_180526.shp",layer="Transmision_180526",driver="ESRI Shapefile",encoding="UTF-8",verbose=TRUE,overwrite_layer=TRUE)
+
+#pal <- brewer.pal(4, "RdYlGn")
+#pal<-c("#d9d9d9","#fd8d3c","#78c679","#f7fcb9")
+#pal <- colorRampPalette(pal)
+
+
+#Inicio
+names(MPIOSIni@data)
+MPIOSIni@data<-data.frame(as(MPIOSIni,"data.frame"),Inicio[match(MPIOSIni@data[,"div_int"],Inicio[,"COD.MUNICIPIO"]),])
+MPIOSIni$INICIO<-ifelse((MPIOSIni$INICIO.OPERACIÓN == "NO") | is.na(MPIOSIni$INICIO.OPERACIÓN),"No","Si")
+table(MPIOSIni$INICIO)
+
+```
+
+Page 1
+===================================== 
+
+Column {data-width=570}
+-----------------------------------------------------------------------
+
+### Distribución geográfica
+```{r}
+factpal <- colorFactor(c('#bababa','#41ab5d'), MPIOSIni$INICIO)
+factpal2 <- c("#d9d9d9","#fd8d3c","#78c679","#f7fcb9")
+palData <- classIntervals(Trans$Porcentaje, n=4, style="fixed",fixedBreaks=c(0.01,90,100,max(Trans@data$Porcentaje,na.rm = TRUE)))
+Trans$colors <- findColours(palData, factpal2)
+
+
+map <- leaflet(data= CONALPto) %>%
+  
+  ## Base group: default OpenStreetMap map tiles
+  addProviderTiles("OpenStreetMap.Mapnik") %>%  setView(-74.0382679, 4.3489054, zoom = 11) %>%
+  fitBounds(-78.201032746, 2.678125512, -71.6273344832, 11.552618168)%>%
+  
+  ## Overlay groups
+  addMarkers(clusterOptions = markerClusterOptions())%>%
+  addCircleMarkers(data=CAPITALES,radius = 2.2 ,stroke = FALSE, fillOpacity = 1, color = "#525252") %>%
+  addPolylines(data = DPTOS_lin, stroke = TRUE, color = "#252525",opacity = 1, weight= 1) %>%
+  addPolygons(data = MPIOSIni, stroke = FALSE, fillOpacity = 0.5, fillColor = ~factpal(INICIO)) %>%
+  #addPolygons(data = Trans, stroke = FALSE, fillOpacity = 0.8, fillColor = ~colors) %>%
+
+  ## Layers control
+  addLayersControl(overlayGroups = c("1","2","3","4","5"),options = layersControlOptions(collapsed = FALSE))%>%
+
+  # Add legend
+  addLegend(pal = factpal, values = MPIOSIni$INICIO, opacity = 0.5, title = 'Estado   inicio',position = "bottomleft")
+  #addLegend(pal = factpal2, values = Trans$Porcentaje, opacity = 0.5, title = 'Transmisión',position = "bottomleft")
+  
+map
+
+
+```
+
+Column {data-width=430}
+-----------------------------------------------------------------------
+
+### Inicio de la operación
+
+```{r}
+rate <- 85
+gauge(rate, min = 0, max = 100, symbol = '%', gaugeSectors(
+  success = c(80, 100), warning = c(40, 79), danger = c(0, 39)
+))
+```
+
+### Transmisión de la información
+
+```{r}
+grafica$fecha<-as.Date(grafica$Fecha, "%d/%m/%y")
+grafica$perc<-grafica$Transmitidas/grafica$Notificadas*100
+p <- plot_ly(grafica, x = ~ fecha, y = ~ Transmitidas, type = 'scatter', mode = 'lines+markers', name = 'Transmitidas') %>%
+  add_trace(y = ~Notificadas, name = 'Notificadas', mode = 'lines+markers') %>% layout(legend = list(x = 0.02, y = .95))
+p
+```
+
+
+Page 2
+===================================== 
+```{r}
+str(reqconal)
+torta1<-reqconal[,c(20,8:14)]
+```

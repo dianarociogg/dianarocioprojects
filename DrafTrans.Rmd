@@ -1,0 +1,68 @@
+---
+title: "ReporteCONAL"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, include = FALSE}
+
+paquetes<-c("classInt","corrplot","d3heatmap","DT","factoextra","FactoMineR","foreign","ggplot2","gridExtra","heatmaply","Hmisc","knitr","leaflet","maps","maptools","NbClust","openxlsx","pander","plotly","raster","RColorBrewer","reshape2","rgdal","rgeos","RPostgreSQL","scales","sf","spatstat","spdep","VIM","viridis")
+# vector con los paquetes no instalados
+instalaciones<-paquetes[!paquetes %in% installed.packages()]
+# iteración para descargar los paquetes sin instalar
+for(libs in instalaciones) install.packages(libs)
+# carga de paquetes
+sapply(paquetes,require,character=TRUE)
+
+
+# Cambiar según ubicación de librería Rtools en el equipo de trabajo
+Sys.setenv("R_ZIPCMD"='C:/Rtools/bin/zip.exe') 
+```
+
+El siguiente reporte contiene los resultados del seguimiento y registro de requerimientos del nivel departamental y municipal de la estructura operativa del CNPV.
+
+
+```{r, include = FALSE}
+# Lectura datos diarios
+
+inicial<-read.csv("E:/OTROS/AACONAL/Reporte/20180515_Reporte/20180515_Formulario_Consolidado.csv",header=TRUE,sep=";",stringsAsFactors=FALSE)
+str(inicial)
+df_conal<-inicial[,c("llave","Código.departamento","Código.del.municipio","Municipio","Personal","Insumos_kits","Transporte","Externalidades","Pre_operativo","Operativo","TIC","Estado")]
+#str(df_conal)
+#head(df_conal)
+
+```
+
+## Inicio de operación
+
+
+
+```{r, echo = FALSE}
+datatable(df_conal,options = list(pageLength = 7))
+
+#, colnames=c("DEPARTAMENTO","MUNICIPIO","DIVIPOLA","FASE","COORDINACIÓN","PERSONAL","INSUMOS","TRANSPORTE","EXTERNALIDADES","PRE-OPERATIVO","OPERATIVO","TIC"),options = #list(pageLength = 7)
+
+```
+
+
+
+```{r, echo = FALSE}
+datatable(df_conal,options = list(pageLength = 7))
+
+#, colnames=c("DEPARTAMENTO","MUNICIPIO","DIVIPOLA","FASE","COORDINACIÓN","PERSONAL","INSUMOS","TRANSPORTE","EXTERNALIDADES","PRE-OPERATIVO","OPERATIVO","TIC"),options = #list(pageLength = 7)
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

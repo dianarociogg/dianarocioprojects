@@ -1,0 +1,64 @@
+---
+title: "Reporte de seguimiento CNPV 2018"
+author: "Centro Operativo Nacional - CONAL"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r, message=FALSE, warning =FALSE}
+
+paquetes<-c("sp","raster","rgdal","rgeos","maptools","ggplot2","gridExtra","spdep","RColorBrewer","reshape2","spatstat","scales","spdep","leaflet","maps","viridis","classInt")
+# vector con los paquetes no instalados
+instalaciones<-paquetes[!paquetes %in% installed.packages()]
+# iteración para descargar los paquetes sin instalar
+for(libs in instalaciones) install.packages(libs)
+# carga de paquetes
+sapply(paquetes,require,character=TRUE)
+
+# Cambiar según ubicación de librería Rtools en el equipo de trabajo
+Sys.setenv("R_ZIPCMD"='C:/Rtools/bin/zip.exe') 
+```
+
+El siguiente mapa despliega las veredas que fueron incluidas en el Análisis de Componentes Principales (ACP). Tal como se indicó, la vereda totalizó información de las UPA, y fueron consideradas aquellas veredas que tuvieran al menos el 90%.
+
+```{r, message=FALSE, warning =FALSE}
+VDAS<-readOGR(dsn="C:/Users/drgalindog/Downloads/VDAS_simpli",layer="VeredaSimp",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+#str(VDAS@data)
+VDAS@data<-as.data.frame(VDAS@data[,c(1:6,12)])
+#str(VDAS@data)
+
+#SPDF con datos de entrada
+VDAS_DATOS<-VDAS
+DatosxVereda$cod.vereda<-as.character(DatosxVereda$cod.vereda)
+DatosxVereda$cod.vereda<-gsub("\\s", "",DatosxVereda$cod.vereda)
+
+VDAS_DATOS@data<-data.frame(as(VDAS_DATOS,"data.frame"),DatosxVereda[match(VDAS_DATOS@data[,"CODIGO_VER"],DatosxVereda[,"cod.vereda"]),])
+VDAS_DATOS<-VDAS_DATOS[complete.cases(VDAS_DATOS@data),]
+
+VDAS_DATOSCont<-VDAS_DATOS[VDAS_DATOS@data$COD_DPTO != "88",]
+VDAS_DATOSSA<-VDAS_DATOS[VDAS_DATOS@data$DPTOMPIO == "88001",]
+VDAS_DATOSPV<-VDAS_DATOS[VDAS_DATOS@data$DPTOMPIO == "88564",]
+
+```
+El siguiente mapa despliega las veredas que fueron incluidas en el Análisis de Componentes Principales (ACP). Tal como se indicó, la vereda totalizó información de las UPA, y fueron consideradas aquellas veredas que tuvieran al menos el 90%.
+
+```{r, message=FALSE, warning =FALSE}
+VDASPrueba<-VDAS_DATOSCont[VDAS_DATOSCont@data$COD_DPTO == "25",]
+factpal <- colorFactor(magma(10), VDASPrueba$CODIGO_VER)
+leaflet(data = VDASPrueba) %>% addProviderTiles("OpenStreetMap.BlackAndWhite") %>% 
+        setView(-73.800,4.500,zoom = 8) %>% 
+        addPolygons(fillColor = ~factpal(CODIGO_VER), stroke = FALSE,
+                    popup = paste(VDAS$CODIGO_VER,"\n",VDAS$NOMBRE_VER))
+```
+
