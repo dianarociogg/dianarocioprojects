@@ -11,7 +11,7 @@ output:
 paquetes<-c("classInt","corrplot","flexdashboard","d3heatmap","DT","factoextra","FactoMineR","foreign","ggplot2","gridExtra","heatmaply","Hmisc","knitr","leaflet","maps","maptools","NbClust","openxlsx","pander","plotly","raster","RColorBrewer","reshape2","rgdal","rgeos","RPostgreSQL","scales","sf","spatstat","spdep","stringr","VIM","viridis")
 # vector con los paquetes no instalados
 instalaciones<-paquetes[!paquetes %in% installed.packages()]
-# iteración para descargar los paquetes sin instalar
+# iteraci?n para descargar los paquetes sin instalar
 for(libs in instalaciones) install.packages(libs)
 # carga de paquetes
 sapply(paquetes,require,character=TRUE)
@@ -23,43 +23,45 @@ sapply(paquetes,require,character=TRUE)
 rm(list = ls())
 
 # alfanumerica
-inicial<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "TRANSMISION en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+inicial<-read.csv(choose.files(default = "*.csv",caption = "TRANSMISION en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
 
-grafica<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "Fecha IET en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+grafica<-read.csv(choose.files(default = "*.csv",caption = "Fecha IET en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
 
 # consolidado requerimientos
-reqconal<-read.csv(choose.files(default = "E:/R/CONAL/*.csv",caption = "Consolidado requerimientos en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+reqconal<-read.csv(choose.files(default = "*.csv",caption = "Consolidado requerimientos en csv"),header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
 str(reqconal)
 
 # Coordenadas cabeceras
-cab_coord<-read.table("C:/Geo/Cabeceras_Coords.txt", encoding = 'UTF-8',header=TRUE,sep="\t", dec=",",stringsAsFactors= FALSE)
-cab_coord$DIVIPOLA<-str_sub(cab_coord$CODIGO_MUN,start=-5)
-cab_coord$div_int<-as.numeric(cab_coord$DIVIPOLA)
-cab_coord<-cab_coord[,c(6,7,4,5)]
+cab_coord<-read.table("C:/Users/Diana Rocio/Documents/GitHub/dianarocioprojects/Dashboards/Cabeceras_Coords.txt", encoding = 'UTF-8',header=TRUE,sep="\t", dec=",",stringsAsFactors= FALSE)
+#cab_coord$DIVIPOLA<-str_sub(cab_coord$CODIGO_MUN,start=-5)
+cab_coord$div_int<-as.numeric(cab_coord$Codigo)
+cab_coord<-cab_coord[,c(13,3,10,11)]
 str(cab_coord)
 
 str(reqconal)
-reqconal$DIVIPOLA<-ifelse(nchar(reqconal$Código.del.municipio) == 5,reqconal$Código.del.municipio, paste0(reqconal$Código.departamento,"001"))
+reqconal$DIVIPOLA<-ifelse(nchar(reqconal$Codigo.del.municipio) == 5,reqconal$Codigo.del.municipio, paste0(reqconal$Codigo.departamento,"001"))
 reqconal$div_int<-as.numeric(reqconal$DIVIPOLA)
 CONAL<-merge(reqconal,cab_coord,by="div_int")
+CONAL$x<-as.numeric(CONAL$x)
+CONAL$y<-as.numeric(CONAL$y)
 CONALDF<-CONAL[,c(2:17,21:23)]
 str(CONALDF)
-CONALPto<-st_as_sf(CONAL, coords = c("Longitud", "Latitud"),crs = 4326, agr = "constant")
+CONALPto<-st_as_sf(CONAL, coords = c("x", "y"),crs = 4326, agr = "constant")
 ```
 
 ```{r infoalfa2, include = FALSE}
 #Inicio
-MunF2<-read.table("Municipios FaseII.csv",header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
-MunF3<-read.table("MUNICIPIOS FASEIII.csv",header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+MunF2<-read.table("C:/Users/Diana Rocio/Documents/GitHub/dianarocioprojects/Dashboards/Municipios FaseII.csv",header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
+MunF3<-read.table("C:/Users/Diana Rocio/Documents/GitHub/dianarocioprojects/Dashboards/MUNICIPIOS FASEIII.csv",header=TRUE,sep=";",stringsAsFactors=FALSE,encoding = "UTF-8")
 Inicio<-rbind(MunF2,MunF3)
-table(Inicio$INICIO.OPERACIÓN)
+table(Inicio$INICIO)
 ```
 
 ```{r infogeo, include = FALSE}
 # geografica
-CAPITALES<-readOGR(dsn="C:/Geo",layer="Capitales",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+CAPITALES<-readOGR(dsn="E:/Geo",layer="Capitales",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
 
-DPTOS_lin<-readOGR(dsn="C:/Geo",layer="Dept_lin",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
+DPTOS_lin<-readOGR(dsn="E:/Geo",layer="Dept_lin",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
 #str(DPTOS@data)
 
 DPTOS<-readOGR(dsn="C:/Geo",layer="Departamentos",stringsAsFactors=FALSE,use_iconv=TRUE,encoding="UTF-8")
@@ -89,7 +91,7 @@ writeOGR(obj=Trans, dsn="C:/Geo/Transmision_180526.shp",layer="Transmision_18052
 #Inicio
 names(MPIOSIni@data)
 MPIOSIni@data<-data.frame(as(MPIOSIni,"data.frame"),Inicio[match(MPIOSIni@data[,"div_int"],Inicio[,"COD.MUNICIPIO"]),])
-MPIOSIni$INICIO<-ifelse((MPIOSIni$INICIO.OPERACIÓN == "NO") | is.na(MPIOSIni$INICIO.OPERACIÓN),"No","Si")
+MPIOSIni$INICIO<-ifelse((MPIOSIni$INICIO.OPERACI?N == "NO") | is.na(MPIOSIni$INICIO.OPERACI?N),"No","Si")
 table(MPIOSIni$INICIO)
 
 ```
@@ -100,7 +102,7 @@ Page 1
 Column {data-width=570}
 -----------------------------------------------------------------------
 
-### Distribución geográfica
+### Distribuci?n geogr?fica
 ```{r}
 factpal <- colorFactor(c('#bababa','#41ab5d'), MPIOSIni$INICIO)
 factpal2 <- c("#d9d9d9","#fd8d3c","#78c679","#f7fcb9")
@@ -126,7 +128,7 @@ map <- leaflet(data= CONALPto) %>%
 
   # Add legend
   addLegend(pal = factpal, values = MPIOSIni$INICIO, opacity = 0.5, title = 'Estado   inicio',position = "bottomleft")
-  #addLegend(pal = factpal2, values = Trans$Porcentaje, opacity = 0.5, title = 'Transmisión',position = "bottomleft")
+  #addLegend(pal = factpal2, values = Trans$Porcentaje, opacity = 0.5, title = 'Transmisi?n',position = "bottomleft")
   
 map
 
@@ -136,7 +138,7 @@ map
 Column {data-width=430}
 -----------------------------------------------------------------------
 
-### Inicio de la operación
+### Inicio de la operaci?n
 
 ```{r}
 rate <- 85
@@ -145,7 +147,7 @@ gauge(rate, min = 0, max = 100, symbol = '%', gaugeSectors(
 ))
 ```
 
-### Transmisión de la información
+### Transmisi?n de la informaci?n
 
 ```{r}
 grafica$fecha<-as.Date(grafica$Fecha, "%d/%m/%y")
