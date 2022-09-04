@@ -1,0 +1,638 @@
+---
+title: "Assignment 2"
+author: "Diana Rocio Galindo Gonzalez"
+header-includes:
+ - \usepackage{multirow}
+ - \usepackage{longtable}
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+    includes:
+      in_header: 
+      - !expr system.file("includes/fig-valign.tex", package = "summarytools")
+---
+
+
+```{r setup, message=FALSE, warning=FALSE, results=FALSE,include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Required packages
+pkgs<-c("car","chemometrics","corrplot","corrplot","dplyr","data.table","fitdistrplus",
+        "dygraphs","DT","flextable","factoextra","FactoMineR","fmsb","ggcorrplot","ggplot2",
+        "lmtest","GGally","ggspatial","ggsci","googleway","ggpubr","grid","gridExtra","heatmaply",
+        "htmlwidgets","kableExtra","knitr","desctools","lattice","leaflet","lubridate","magrittr",
+        "missMDA","naniar","plotly","rnaturalearth","rnaturalearthdata","rms","ROCR","cvAUC",
+        "rstudioapi","sf","sm","mice","tidyr","tidyverse","vcd","VIM","visdat","xtable","DescTools",
+        "ResourceSelection")
+
+# Non-installed packages
+inspkgs<-pkgs[!pkgs %in% installed.packages()]
+for(libs in inspkgs) install.packages(libs, 
+                                      repos = "http://cran.us.r-project.org")
+
+# Loading required
+sapply(pkgs,require,character=TRUE)
+
+# Loading files
+current_path <- getActiveDocumentContext()$path 
+current_path
+setwd(dirname(current_path ))
+getwd()
+
+```
+
+```{r, message=FALSE, include = FALSE}  
+library(summarytools)
+st_options(
+  plain.ascii = FALSE, 
+  style = "rmarkdown",
+  dfSummary.style = "grid",
+  dfSummary.valid.col = FALSE,
+  dfSummary.graph.magnif = .52,
+  subtitle.emphasis = FALSE,
+  tmp.img.dir = "/tmp"
+)
+
+define_keywords(title.dfSummary = "Initial data frame summary in PDF Format")
+
+```
+
+```{r}
+rm(list=ls())
+set.seed(310883)
+
+# Import initial dataset
+csvf<-list.files(path=".",pattern=".csv")
+df1<-data.frame(lapply(csvf, read.delim,stringsAsFactors = TRUE,header=T, sep=","))
+
+# Reordering columns to facilitate my reading
+df2<-df1[,c(1,14,3,13,2,4:12)]
+
+# Initial data frame structure
+data.frame(Variable = names(df2),
+ Class = sapply(df2, class),
+ Head = sapply(df2, function(x) paste0(head(x,n=4), collapse = ", ")),
+ row.names = NULL) %>% kable(booktabs = T) %>%
+  kable_styling(full_width = F, latex_options = c("striped", "scale_down")) %>%
+  column_spec(1, width = "10em")
+```
+# Data preparation
+
+To structure the dataset to be used the data preparation includes fix structural errors associated to trailing blanks in labels and removing duplicate observations:
+
+```{r, message=FALSE, warning=FALSE}
+# Removing leading, trailing, multiple spaces on levels
+for (i in c(1,6:14)){ df2[,i] <-gsub(" +$", " ", df2[,i]) }
+for (i in c(1,6:14)){ df2[,i] <-trimws(df2[,i])}
+colnames(df2)[3] <-'CDI'
+names(df2)
+df3<-df2[,c("enrollee_id","target","city","CDI","training_hours","gender","education_level",
+            "enrolled_university","major_discipline","experience",
+            "relevent_experience","company_type","company_size","last_new_job")]
+table(duplicated(df3))
+```
+
+```{r, results='asis', message=FALSE, warning=FALSE}  
+dfSummary(df3)
+```
+
+The dataset has no duplicated data and there is no upper/lower cases to homogenize.
+
+The second step includes check data types and levels of categorical data. For candidates dataset, counts with 11 variables and the identifier. Two variables are numeric (City Development Index and training hours). The rest of the variables are categorical variables. The dataset contains empty cells which are mostly associated to NA data. 
+
+For the purpose of the modeling the categorical variables are set as ordinal variables in the way that lower values of the ordinal variables are associated too have FALSE output as expected and counting with the assumption that individuals with higher education level, experience and working for bigger and consolidated companies have a better response.
+
+To manage the empty data firstly and related with the consistency of the information the following assumptions were made: 
+
+- Candidates with primary school can not be enrolled in university hence if their enrolled university is empty changes to "no enrollment"
+- Candidates with any Education major discipline has at least graduate level of education hence their if their education_level is empty changes to "graduate"
+- Candidates with any Education major discipline has at least graduate level of education hence their if their education_level is empty changes to "graduate"
+
+The rest of empty data were considered NA data, and it was imputed as it is explain in the next section.
+
+```{r, message=FALSE, warning=FALSE, results='hide'}
+str(df3)
+table(df3$education_level)
+table(df3$enrolled_university)
+table(df3$major_discipline)
+
+df3[df3$enrolled_university== "" & df3$education_level=="Primary School", 
+    c("enrolled_university")]<-"no_enrollment"
+df3[df3$major_discipline != "" & df3$education_level=="", 
+    c("education_level")]<-"Graduate" # 0 records
+```
+As well, as part of the preprocessing and to perform the following rules to perform the predictive analysis:
+
+- Consider: **City Development Index (CDI)**, **training hours**, **experience** and **last new job** as numerical variables due to its characteristics, the variables values are associated more to numbers than categories and are considered in the same way. The highest number of city development index, training hours and years of experience is expected to have associated higher probability of being hired. The last new job is interpreted as a variable to describe expectations to change of candidate. 
+  
+- To make the string variables to numericFor the case of experience, candidates with less than one year of experience are relabelled as 0.5 and those with more than 20 years, 20.5 years to make the differences with the initial data and highlight they correspond to distinct numbers. 
+    
+Under the same assumptions of higher levels of education and experience are more expected to be in the hired candidates, I re categorize the variables according to the observed distribution, including as well technical similarities and aiming for balanced the distribution of the levels as follows and based on data distribution (Column "graph" on summary description): 
+  
+- **enrrolled_university** with two categories: NotEnrolled (2.no_enrollment) and Enrolled (3. Part time course and  1. Full time course)
+- **education_level** with three categories: School (5. Primary School and 2. High School), Graduate (1. Graduate) and Specialized (3.Masters and 4. PhD)
+- **major_discipline** with three categories: NoMajor(4. No Major), NoSTEM (1. Arts, 2. Business Degree, 3. Humanities and 5. Other ) and STEM (6.)
+- **company_size**: According to the quartile distribution of the data, Less than 100 employees, Between 50 and 500, between 100 and 5000, and More than 4.
+
+```{r, message=FALSE, warning=FALSE} 
+## Numeric
+
+df3$experience<-as.character(df3$experience)
+df3$experience[df3$experience == '<1'] <- '0.9'
+df3$experience[df3$experience == '>20'] <- '20.5'
+df3$experience<-as.numeric(df3$experience)
+
+
+## Levels of factor variables
+df3$relevent_experience<-as.factor(df3$relevent_experience)
+levels(df3$relevent_experience)<-list(NoRelevantExp="Has relevent experience",
+                                      RelevantExp="No relevent experience")
+
+
+df3$enrolled_university<-as.factor(df3$enrolled_university)
+levels(df3$enrolled_university)<-list(NotEnrolled="no_enrollment", Enrolled=
+                                        "Part time course", Enrolled="Full time course")
+#str(df3$enrolled_university)
+
+
+df3$education_level<-as.factor(df3$education_level)
+levels(df3$education_level)<-list(School= "Primary School",School="High School",
+                                  Grad="Graduate",Specialized="Masters",Specialized="Phd")
+#str(df3$education_level)
+
+df3$major_discipline<-as.factor(df3$major_discipline)
+levels(df3$major_discipline)<-list(NoMajor="No Major",NoSTEM = c("Arts","Business Degree",
+"Humanities","Other"), STEM="STEM")
+#str(df3$major_discipline)
+
+df3$company_size <- factor(df3$company_size, order = TRUE, 
+                           levels =c('<10','10/49','50-99','100-500','500-999',
+                                     '1000-4999','5000-9999','10000+'))
+#table(ntile(df3$company_size, 4), df3$company_size)
+df3$compSizeCat<-ntile(df3$company_size, 4)
+#table(ntile(df3$company_size, 4), df3$company_size)
+#table(df3$compSizeCat, df3$company_size)
+df3$compSizeCat<-as.factor(df3$compSizeCat)
+
+levels(df3$compSizeCat)<-list(Less100='1', '50to500' = '2', '100to5000' ='3',
+                              More1000='4')
+summary(df3)
+df4<-df3[,-13]
+```
+
+For the remaining variables:**city**, **company_type** and **last_new_job** it is necessary
+to review the distribution of the data.
+
+```{r, message=FALSE, warning=FALSE}  
+print(str(df4))
+resp_cat<-df4[,c("target","city","company_type","last_new_job")]
+#str(resp_cat)
+
+resp_cat$target<-as.logical(resp_cat$target)
+#as.factor(resp_cat$target)
+resp_cat[sapply(resp_cat, is.character)] <- lapply(resp_cat[sapply(resp_cat, 
+                                                                   is.character)], 
+                                                   as.factor)
+#str(resp_cat)
+
+#City
+cityT<-df4[df4$target==TRUE,c("target","city")]
+tcityt<-as.data.frame(table(cityT))
+#head(tcityt)
+
+#tcityt$perc<-tcityt$Freq/sum(tcityt$Freq)*100
+#head(tcityt)
+
+#tcityt<-tcityt[,c(2,4)]
+#head(tcityt)
+
+#tcityt<-tcityt[order(-tcityt$perc),]
+#head(tcityt)
+
+ggplot(cityT, aes(y=fct_infreq(cityT$city)), fill = cityT$Freq) + geom_bar()+ 
+  theme(axis.text.y = element_text(size =3))
+
+df4$CityQ<-ntile(df4$city, 4)
+df4$CityQ<-as.factor(df4$CityQ)
+levels(df4$CityQ)<-list(CityGroup1=1, CityGroup2=2,
+                                  CityGroup3=3, CityGroup4=4)
+
+#ggballoonplot(d,fill = "#0073C2FF",size.range = c(0.01, 1), show.label = TRUE,
+#font.label = c(2, "plain")) + theme(axis.text.y = element_blank())
+
+```
+
+The city variable is grouped by the distribution in percentiles given the high number of levels.
+
+```{r, message=FALSE, warning=FALSE}  
+# Company Type
+b<-table(df4$company_type,resp_cat$target)
+c<-as.data.frame(b)
+
+ggballoonplot(c)
+
+df4$company_type<-as.factor(df4$company_type)
+levels(df4$company_type)<-list(Private= "Pvt Ltd",Startup="Funded Startup",
+                               Startup="Early Stage Startup", Other = "NGO",
+                               Other ="Public Sector", Other = "Other")
+#str(df4$company_type)
+
+# Last New Job
+d<-table(df4$last_new_job,resp_cat$target)
+e<-as.data.frame(d)
+
+ggballoonplot(e)
+
+df4$last_new_job<-as.character(df4$last_new_job)
+df4$last_new_job[df4$last_new_job == 'never'] <- '0'
+df4$last_new_job[df4$last_new_job == '>4'] <- '4.5'
+df4$last_new_job<-as.numeric(df4$last_new_job)
+
+df4$target<-as.logical(df4$target)
+df4$gender<-as.factor(df4$gender)
+
+#ordering the columns
+df5<-df4[,c("enrollee_id","target","CDI","training_hours",
+            "experience", "last_new_job", "gender","education_level",
+            "enrolled_university", "major_discipline", "relevent_experience",
+            "company_type","compSizeCat","CityQ")]
+
+df5$training_hours<-as.double(df5$training_hours)
+df5$last_new_job<-as.double(df5$last_new_job)
+df5$target<-as.logical(df5$target)
+str(df5)
+
+#b1 <- getBins(df, "target", 
+# c("CDI","training_hours","experience","last_new_job","gender","education_level",
+#"enrolled_university","major_discipline","relevent_experience","company_type",
+#"compSizeCat"), minCr = 0.6, nCores = 2)
+#b1
+```
+According to the distribution of the data, the **company_type** variable is recategorized with three levels: Private (Pvt Ltd), Startup (Funded Startup and Early Stage Startup) and Other (NGO,Public Sector and Other). The variable **last_new_job** is converted to numeric.
+
+With the previous preprocessed data, the empty values are considered null. 
+
+```{r, message=FALSE, warning=FALSE}
+df5[df5 == ""] <- NA
+dim(df5)
+dim(df5[complete.cases(df5),])
+```
+The dataset contains 19.158 rows and the complete cases are 8.955 corresponding to the 46.74% of the cases. 7.7% of the data is missing in the data. The following graphs depicts the distribution of missing data. 
+
+```{r, message=FALSE, warning=FALSE}
+# Missing Data Graphs
+vis_miss(df5,sort_miss = TRUE, show_perc = TRUE,
+  show_perc_col = TRUE)
+vis_dat(df5, sort_type = TRUE, palette = "cb_safe")
+aggr(df5, col=c('grey','#252525'), numbers=TRUE, sortVars=TRUE, labels=names(df5), 
+     cex.axis=.5, gap=1, ylab=c("Missing data"," "),border=NA, prop=TRUE)
+
+```
+**company_type** is the variable with highest proportion of missing values (32.05%) of the data, followed by the number of employees in current employer's company (30.99%) and gender (23.53%). 
+
+Regarding the outliers, univariate outliers are calculated and set as NA. In accordance with the summary table, there is presence of univariate outlier values per numeric variable.The threshold established corresponds to be > 1.5*Interquartile Range from the borders of the box.
+
+```{r, message=FALSE, warning=FALSE, fig.show="hold", out.width="50%"}
+df6<-df5
+nm<-names(df5[,3:6])
+a<-as.list(nm)
+funbox<-function(i){out<-boxplot.stats(df5[,i])$out
+                   label=ifelse(df5[,i] %in% out,df5$enrollee_id,"")
+                   print(ggplot(df5,aes(x=df5[,2],y=df5[,i])) +  
+                   geom_boxplot(outlier.colour="red", 
+                                 outlier.size=0.8) + 
+                     geom_text(aes(label=label),hjust=3, size=0.1) + 
+                     labs(title=nm[i-2], x="target", y=NULL) +
+                     theme(plot.title = element_text(size = rel(0.7),face ="bold",
+                                                   hjust = 0.5),
+                        axis.title.y = element_text(size = rel(0.6)),
+                        axis.text = element_text(size = rel(0.6))))
+                   print(paste("Enrolled_id of outliers in ",title=nm[i-2]))
+                   print(df5$enrollee_id[df5[,i] %in% out])}
+boxplots<-lapply(3:6,funbox)
+
+outCDI<-boxplot.stats(df6$CDI)$out
+df6[(df6$CDI %in% outCDI),c("CDI")] <- NA
+
+outTH<-boxplot.stats(df6$training_hours)$out
+df6[(df6$training_hours %in% outTH),c("training_hours")] <- NA
+
+```
+
+```{r, hide=TRUE, message=FALSE, warning=FALSE}
+summary(df6)
+str(df6)
+```
+Imputing the corresponding values:
+
+```{r, message=FALSE, warning=FALSE}
+numv<-df6[,3:6]
+nbdimn0 <- estim_ncpPCA(numv)
+imputedNum<-imputePCA(numv, ncp = 3)
+
+catv<-df6[,7:14]
+#nbdimn <- estim_ncpMCA(catv)
+imputedCat<-imputeMCA(catv, ncp = 6)
+
+names(df6)[1:6]
+df7<-as.data.frame(cbind(df6$enrollee_id,df6$target,imputedNum$fittedX,imputedCat$completeObs))
+names(df7)[1:6]<-names(df6)[1:6]
+```
+
+Correlation matrix and histograms are calculated for the numeric variables. The last_new_job variable it is removed from the data because its high correlation with experience. Histograms depict the distribution for the numeric variables.
+
+
+```{r, message=FALSE, warning=FALSE}
+
+# Correlation between numeric variables
+
+corrplot(cor(df7[3:6]),cex.main=0.7,method = c("square"),
+         number.cex = 1,tl.cex=0.7,tl.col="gray31",
+         cl.align="c",tl.offset = 0.1,addCoef.col=TRUE)
+
+# Removing last_new_job variable for high correlation with experience
+df8<-df7[,c("target","CDI","training_hours","experience","gender",
+            "education_level","enrolled_university","major_discipline"
+            ,"relevent_experience","company_type","compSizeCat" )]
+
+
+numvars<-df8[2:4]
+a<-names(numvars)
+a<-as.list(a)
+fun02<-function(i){
+                   bw <- nclass.Sturges(numvars[,i]) # Freedman-Diaconis
+                   nm=a[i]
+                   assign(paste("g",i,sep=""),
+                   ggplot(numvars, aes(numvars[,i])) +  
+                   geom_histogram(bins = bw,aes(y=..density..), fill="#de2d26") +
+                   geom_density(alpha=.35, fill="#08519c",color = NA)  +
+                   geom_vline (aes(xintercept=median(numvars[,i])),
+            color="#08519c", size=1) + 
+                   labs(title=nm, x=NULL)) +
+                   theme(plot.title = element_text(size = rel(0.7),face ="bold",
+                                                   hjust = 0.5),
+                        axis.title.y = element_text(size = rel(0.4)),
+                        axis.text = element_text(size = rel(0.4)))
+                   }
+Histos<-lapply(1:length(a),fun02)
+#Histos<-lapply(1,fun02)
+do.call(grid.arrange, Histos)
+
+```
+
+Multivariate outliers are calculated and identified.
+```{r, message=FALSE, warning=FALSE}
+mout <- Moutlier(numvars, quantile = 0.99, plot=T )
+par(mfrow=c(1,1))
+plot(mout$md, mout$rd)
+abline( h=mout$cutoff, lwd=2, col="red")
+abline( v=mout$cutoff, lwd=2, col="red")
+
+llmout <- which((mout$md>mout$cutoff) & (mout$rd > mout$cutoff) )
+llmout
+
+numvars[llmout,]
+
+mout$md[llmout]
+numvars$mout <- 0
+numvars$mout[ llmout ] <- 1
+numvars$mout <- factor( numvars$mout, labels = c("MvOut.No","MvOut.Yes"))
+```
+# Setting the sample and splitting the dataset
+
+```{r, message=FALSE, warning=FALSE, results='asis'}
+df9<-df8
+#str(df9)
+df9$target<-as.logical(df9$target)
+rownames(df9)<-df8$enrollee_id
+
+
+# Random selection of x registers:
+sam<-as.vector(sort(sample(1:nrow(df9),5000)))
+df<-df9[sam,] # Subset of rows _ It will be my sample
+
+llwork <- sample(1:nrow(df),round(0.75*nrow(df),0))
+
+dfTR<-df[llwork,]
+dfTS<-df[-llwork,]
+
+dfSummary(df)
+```
+# Profiling and feature selection
+
+the target is profiled:
+
+```{r, message=FALSE, warning=FALSE}
+profile<-catdes(dfTR, num.var=1, prob = 0.01)
+profile
+```
+
+From this analysis it can be concluded that the link between each variable and the response variable are significant. Are highlighted the variables: CDI, experience and enrolled university.
+
+The characteristics of the average candidate in the TRUE target condition, looking for a new job or will work for the company is coming from a city with a city development index of 0.79, with 8.37 years. Those candidates inf FALSE target condition, coming from a city with a city development index of 0.84, with 10.61 years of experience and a difference of 1.98 years between previous and current job.  
+
+The category associated to the enrolled in university program is over represented among the true target and not Enrolled is under represented. On the opposite, false cases have over represented Not enrolled to a university and Enrolled under represented.
+
+# Modeling using numeric variables using transformations if needed
+
+```{r, message=FALSE, warning=FALSE}
+# Y Target No variables 
+m0 <- glm( target ~ 1, family="binomial", data = dfTR)
+ptt<-prop.table(table(dfTR$target));ptt
+summary(m0)
+oddm0<-ptt[2]/ptt[1];oddm0
+logoddm0 <- log( oddm0 ); logoddm0
+```
+Candidates looking for a new job or with a probability to be hired is positive in 25.6% of the cases. The odds of the positive case is 0.34 and its marginal probability is -1.07.
+
+```{r, message=FALSE, warning=FALSE}
+# Y Target numeric variables
+m1 <- glm( target ~ CDI + training_hours + experience, family="binomial", data = dfTR)
+summary(m1)
+
+#m1a <- glm( target ~ logCDI + logTH + logexp, family="binomial", data = dfTR)
+#summary(m1a)
+
+ptt1<-prop.table(table(dfTR$CDI,dfTR$target))
+oddm1<-ptt1[,2]/ptt1[,1]
+logoddm1 <- log( oddm1 )
+```
+For this initial model the logit transformation for the probability of the candidates looking for a job or to be hired for true cases is 9.59. As well, the logit probability for TRUE cases decreases in 13.19 units if City Development Index (CDI) increases, decreases in 0.002 units per one additional hour of training and increases 0.02 units for each increment of one year of experience.
+
+The residual deviance is 3801.9.
+
+```{r, message=FALSE, warning=FALSE}
+anova(m0, m1, test="Chisq")
+```
+Performing the comparison of the deviance of the models using a Chi-squared test, it can be concluded that the model using the CDI variable and the model using just the intercept with a significance or 0.01 are not equivalent.
+
+```{r, message=FALSE, warning=FALSE}
+vif(m1)
+m2<-step(m1, k=log(nrow(dfTR)))
+summary(m2)
+```
+The stepwise method is performed to establish the best numeric model. In this case, after the comparison of AIC criteria, the model just includes the CDI variable. Some 
+
+```{r, message=FALSE, warning=FALSE}
+m3 <- glm( target ~ poly(CDI,2), family="binomial", data = dfTR)
+summary(m3)
+```
+The polytomic variable of order two is significant, explaining that CDI in quadratic form is better than linear approach. However due to the high number of categorical variables and the complexity of the interpretation of this parameter it is not considered for the main effect model.
+
+# Residual analysis: unusual and influent data filtering
+
+Residuals of both models (not constant) considered, are performed in order to check the effect of the transformation of CDI index. To observe the residual data are used the plots of the model using the CDI variable, the marginal plots and the influence plot. Cook's Distance is considered for m2 only.
+
+```{r, message=FALSE, warning=FALSE, fig.show="hold", out.width="50%"}
+marginalModelPlots(m2)
+marginalModelPlots(m3)
+influencePlot(m2)
+influencePlot(m3)
+dist <- cooks.distance(m3)
+influential <- Boxplot(dist)
+length(influential)
+
+Anova(m2, test="LR")
+Anova(m3, test="LR")
+```
+The marginal model plots shows difference between the data and the model, for the lineal model data has a trend to follow a curve instead straight line. For the quadratic model the line fits better over the model one but eventually overfitted. Cook's Distance from model 2 identify 10 influential data which are removed from the dataset.
+
+# Adding factor main effects to the best model containing numeric variables
+
+The model with the factor variables and the CDI index is calculated.
+
+```{r, message=FALSE, warning=FALSE}
+#Obtaining a model with input CDI variable and categorical variables trough stepwise
+#regression
+#dfTR[, c(1,2,5:10)]
+dfTR<-dfTR[-influential,c(1,2,5:10)]
+
+m4<-glm(target ~ ., family="binomial", data = dfTR)
+m5<-step(m4, k=log(nrow(dfTR)), direction="both", data=dfTR)
+summary(m5)
+```
+The optimal model with a AIC of 3695.9 considers the CDI, education level, enrolled university, relevant experience and company types to model the probability of a candidate to be hired. The levels of reference of the variables are: School (education level), Not Enrolled (Enrolled University), No Relevant Experience (Relevant experience) and private company. 
+
+# Residual analysis: unusual and influent data filtering.
+
+```{r, message=FALSE, warning=FALSE, fig.show="hold", out.width="50%"}
+marginalModelPlots(m5)
+influencePlot(m5)
+dist <- cooks.distance(m5)
+inf2 <- Boxplot(dist)
+length(inf2)
+
+Anova(m5, test="LR")
+```
+For this model, 
+
+# Adding factor main effects and interactions (limit your statement to order 2) to the best
+
+To characterize the main effects and interactions are evaluated with Anova method evaluating interactions between CDI and each of the selected categorical values. As well the corresponding chi-squared test and the AIC.
+
+```{r, message=FALSE, warning=FALSE}
+#Main effects
+
+summary(m5)
+m6<-glm(target ~ (CDI + enrolled_university + relevent_experience +
+                    company_type) * education_level, family="binomial", data= dfTR)
+m7<-glm(target ~ (CDI + education_level +  relevent_experience +
+                    company_type) * enrolled_university , family="binomial", data= dfTR)
+m8<-glm(target ~ (CDI + education_level + enrolled_university  +
+                    company_type) * relevent_experience , family="binomial", data= dfTR)
+m9<-glm(target ~ (CDI + education_level + enrolled_university + 
+                    relevent_experience) * company_type , family="binomial", data= dfTR)
+
+Anova(m6, test="LR")
+Anova(m7, test="LR")
+Anova(m8, test="LR")
+Anova(m9, test="LR")
+
+anova(m5,m6, test="Chisq")
+anova(m5,m7, test="Chisq")
+anova(m5,m8, test="Chisq")
+anova(m5,m9, test="Chisq")
+
+waldtest(m5,m6,test="Chisq")
+waldtest(m5,m7,test="Chisq")
+waldtest(m5,m8,test="Chisq")
+waldtest(m5,m9,test="Chisq")
+
+AIC(m5,m6,m7,m8,m9)
+
+```
+
+According to the Likelihood Ratio Test, adding each of the individual interactions of the selected variables to the optimal model so far: The education level interaction at 0.05 of significance is relevant for education level but not relevant for the rest of the analysis. For enrolled university and company size the interactions are significant with the CDI, as well company size is significant as well with education level. This interactions allow to identify the numeric variable is relate to the qualitative variables.
+
+Evaluating if the models containing these interactions vs the model including just the main effect, it is considered the chi-squared test through the method anova, at a 0.05 of significance there is difference adding the interactions: education level, enrrollment university and company type. The wald test shows significance at 0.05  for the same interaction.
+
+The chosen model includes: CDI, education level, enrolled university, relevant experience, company type and interactions of CDI, education level with company and relevent experience with company. It is the one with the lowest AIC: 3687.375 and includes 
+
+# Final Residual analysis: unusual and influent data filtering
+
+The final residual plots are calculated:
+
+```{r, message=FALSE, warning=FALSE,out.width="50%"}
+marginalModelPlot(m9)
+influencePlot(m9)
+dist <- cooks.distance(m9)
+influential <- Boxplot(dist)
+length(influential)
+
+marginalModelPlots(m9,id=list(labels=row.names(dfTR),method=abs(cooks.distance(m9)), n=5) )
+avPlots(m9,id=list(labels=row.names(dfTR),method=abs(cooks.distance(m9)), n=5) )
+
+residualPlots(m9, layout=c(3, 2))
+outlierTest(m9)
+
+Anova(m9, test="LR")
+
+m10<-glm(target ~ CDI + education_level + enrolled_university + relevent_experience +
+           company_type + CDI*company_type + education_level*company_type, 
+         family="binomial", data= dfTR)
+
+```
+The final selected model presents a smoother and closer to fit between the model and the data. This model do not present influential data.
+
+# Goodness of fit and Model Interpretation.
+
+The figures associated with the goodness of fit are presented:
+
+```{r, message=FALSE, warning=FALSE}
+final<- m10
+Anova(m10)
+probsel<- predict(final, newdata=dfTS, type = "response")
+selTest<-ifelse(probsel<0.5,0,1)
+CM<-table(selTest,dfTS$target)
+CM
+
+NagelkerkeR2(final)
+summary(final)
+100*(1-m10$dev/m10$null.dev)
+100*(1-(logLik(m10)/m10$df.residual)/(logLik(m0)/(m0$df.residual)))
+
+PseudoR2(final, which='all') # Not working for grouped data
+# Sheather
+1 - (final$deviance / final$null.deviance)
+# McFadden
+1-(as.numeric(logLik(final))/as.numeric(logLik(m0)))
+
+# Hosmer-Lemershow
+seque<-quantile(fitted(m10),probs=seq(0,1,by=0.1))
+fitgrup<-cut(fitted(m10),breaks=seque)
+
+AUC(predict(m10,type="response"), dfTR$target)
+
+```
+
+The logit transformation of the probability of being hired in the reference groups is 7.006 and the corresponding logit probabilities for the true outcome is increased:
+
+- One unit per graduated education level, 0.76 per specialized level with respect of high school.
+- 0.30 units per being enrolled in a university program respect not being.
+- 0.45 units per have relevant experience respect not having it.
+- 7.46 units per coming from an startup company and 1.73 units per being in other types of company, respect to being in a private company.
+
+and is decreasing in 11.10 units per unit increasing in the city development index of the candidate.
+
+The godness of fit of the model using the Hosmer-Lemeshow statistics and McFadden is above 14%. From the test dataset this model predicts TRUE cases in the 9.2% of the cases. The area under the curve is only. 0.34
+

@@ -1,0 +1,678 @@
+---
+title: "Assignment 1"
+author: "Diana Rocio Galindo Gonzalez"
+header-includes:
+ - \usepackage{multirow}
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+    includes:
+      in_header: 
+      - !expr system.file("includes/fig-valign.tex", package = "summarytools")
+---
+# Introduction (from _Data_loadingintroduction_ document)
+
+This data dictionary describes data (https://www.kaggle.com/adityadesai13/used-car-dataset-ford-and-mercedes) - A sample of 5000 trips has been randomly selected from Mercedes, BMW, Volkwagen and Audi manufacturers. So, firstly you have to combine used car from the 4 manufacturers into 1 dataframe.
+
+The cars with engine size 0 are in fact electric cars, nevertheless Mercedes C class, and other given cars are not electric cars,so data imputation is required. 
+
+ - manufacturer	Factor: Audi, BMW, Mercedes or Volkswagen
+ - model	Car model
+ - year	registration year
+ - price	price in £
+ - transmission	type of gearbox
+ - mileage	distance used
+ - fuelType	engine fuel
+ - tax	road tax
+ - mpg	Consumption in miles per gallon 
+ - engineSize	size in litres
+
+```{r setup, message=FALSE, warning=FALSE, results=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Required packages
+pkgs<-c("car","chemometrics","corrplot","corrplot","dplyr","data.table","fitdistrplus",
+        "dygraphs","DT","factoextra","FactoMineR","ggcorrplot","ggplot2","lmtest","GGally",
+        "ggspatial","googleway","grid","gridExtra","heatmaply","htmlwidgets",
+        "knitr", "lattice","leaflet","lubridate","magrittr","missMDA","naniar",
+        "plotly","rnaturalearth","rnaturalearthdata","rstudioapi","sf","sm",
+        "mice","tidyr","tidyverse","VIM","visdat","xtable")
+
+# Non-installed packages
+inspkgs<-pkgs[!pkgs %in% installed.packages()]
+for(libs in inspkgs) install.packages(libs, 
+                                      repos = "http://cran.us.r-project.org")
+
+# Loading required
+sapply(pkgs,require,character=TRUE)
+
+# Loading files
+current_path <- getActiveDocumentContext()$path 
+current_path
+setwd(dirname(current_path ))
+getwd()
+
+```
+
+# Data loading and data cleaning
+
+The first step to develop this assignment, as it was explained in the _Data_loadingintroduction_ document is to load the data, unification of data frames and subsetting the random sample as input to the data cleaning procedure. 
+
+```{r}
+rm(list=ls())
+set.seed(310883)
+
+# Import initial dataset
+csvf<-list.files(path=".",pattern=".csv")
+dfs<-lapply(csvf, read.delim,stringsAsFactors = TRUE,header=T, sep=",")
+
+# Data subsetting by manufacturer
+names(dfs)<-c("Audi","BMW","MERCEDES","VM")
+df0<-dplyr::bind_rows(dfs, .id = "manufacturer")
+
+# Random selection of x registers:
+sam<-as.vector(sort(sample(1:nrow(df0),1000)))
+#head(df0)
+df1<-df0[sam,] # Subset of rows _ It will be my sample
+
+# Converting char variables as factors
+df1[sapply(df1, is.character)] <- lapply(df1[sapply(df1, is.character)], 
+                                       as.factor)
+
+# Data frame structure
+data.frame(Variable = names(df1),
+ Class = sapply(df1, class),
+ Head = sapply(df1, function(x) paste0(head(x), collapse = ", ")),
+ row.names = NULL) %>% kable()
+
+```
+According to the instructions, it is necessary to clean the data to perform an optimal analysis. The cleaning process includes: remove duplicate data, validation of consistency and fix structural errors. Regarding duplicated data, the 743 duplicated rows present in the whole dataset were removed. For consistency, the chunk of code shows a verification of the levels and removing leading, and duplicated spaces. 
+
+```{r, result="asis", message=FALSE}
+# Checking and removing duplicates
+kable(table(duplicated(df1)), col.names = c("Duplicated","Freq"))
+df2<-df1[!duplicated(df1), ]
+#kable(table(duplicated(df1)), col.names = c("Duplicated","Freq"))
+
+# Checking levels of factor variables
+kable(sapply(df2[,c(1,5,7)], levels), col.names = c("Level"))
+
+mod_lev<-levels(df2$model)
+vis<-split(mod_lev, ceiling(seq_along(mod_lev)/15))
+kable(vis,col.names = c("Level"))
+
+# Removing leading, trailing, multiple spaces on levels
+for (i in c(1,2,5,7)){ df2[,i] <-gsub(" +$", " ", df2[,i]) }
+for (i in c(1,2,5,7)){ df2[,i] <-trimws(df2[,i])}
+#sapply(df1[,c(1,2,5,7)], table)
+
+```
+# Data preparation
+
+To define missing data related with electric cars and engine 0, in this report are considered three assumptions based on the data available:
+
+- Electric car has no _transmission_ and _engine size_ is equal or less than 0.6. _Fuel_ can be hybrid
+- Based on the previous condition, electric model references were taken from in the website [wattev2buy](https://wattev2buy.com/electric-vehicles). According to this specialized web portal, the models related to the manufacturers of the analysis are:
+
+\begin{table}[]
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{Type of   model (wattev2buy.com)}                            & \textbf{model (wattev2buy)}   & \textbf{Closest model in dataset} \\ \hline
+\multirow{10}{*}{Audi Plug-in   Hybrid Electric Models}     & A3 `Sportback 40 TFSI e & A3                         \\
+                                                            & A3 Sportback 30 g-tron  & A3                         \\
+                                                            & A6 55 TFSI e            & A6                         \\
+                                                            & A7 Sportback            & A7                         \\
+                                                            & A8 60 TFSI e            & A8                         \\
+                                                            & Q3 TFSI E               & Q3                         \\
+                                                            & Q5 55 TFSI e            & Q5                         \\
+                                                            & Q5 55 TFSI e            & Q5                         \\
+                                                            & Q7                      & Q7                         \\
+                                                            & Q8 55 TFSI e            & Q8                         \\ \hline
+\multirow{2}{*}{Audi   Pure Electric Models}                & Audi R8 e-tron          & R8                         \\
+                                                            & Q2 L 30 e-tron          & Q2                         \\ \hline
+\multirow{7}{*}{BMW   Plug-in Hybrid Electric Models}       & 7 Series                & 7 Series                   \\
+                                                            & i3 REx                  & i3                         \\
+                                                            & i8                      & i8                         \\
+                                                            & X1 xDrive25e            & X1                         \\
+                                                            & X2 xDrive25e            & X2                         \\
+                                                            & X3 xDrive30e PHEV       & X3                         \\
+                                                            & X5 xDrive45e            & X5                         \\ \hline
+\multirow{4}{*}{BMW   Pure Electric Models}                 & BMW iX                  & iX                         \\
+                                                            & i3 120AH                & i3                         \\
+                                                            & i4                      & i4                         \\
+                                                            & iX3                     & iX3                        \\ \hline
+Mercedes Fuel   Cell Electric Models                        & GLC F CELL              & GLC                        \\ \hline
+\multirow{10}{*}{Mercedes   Plug-in Hybrid Electric Models} & A250e 4Matic            & A250e                      \\
+                                                            & A250e L 4Matic          & A250e                      \\
+                                                            & C Class PHEV            & C Class                    \\
+                                                            & C300e Estate            & C300e                      \\
+                                                            & CLA250 Coupe            & CLA                        \\
+                                                            & CLA250 Shootingbrake    & CLA                        \\
+                                                            & GLA 250e SUV            & CLA                        \\
+                                                            & GLC 300e 4MATIC         & GLC                        \\
+                                                            & GLC 300e 4MATIC Coupé   & GLC                        \\
+                                                            & GLE350de 4MATIC         & GLE350de                   \\ \hline
+Mercedes Pure   Electric Models                             & B250e ED                & B250e                      \\ \hline
+\multirow{8}{*}{VW   Plug-in Hybrid Electric Models}        & Arteon eHybrid          & Arteon                     \\
+                                                            & Arteon Estate eHybrid   & Arteon                     \\
+                                                            & GTE                     & GTE                        \\
+                                                            & Passat GTE              & Passat                     \\
+                                                            & Passat GTE Estate       & Passat                     \\
+                                                            & Tiguan eHybrid PHEV     & Tiguan                     \\
+                                                            & Touareg R               & Touareg                    \\
+                                                            & Touran                  & Touran                     \\ \hline
+\multirow{2}{*}{VW   Pure Electric Models}                  & e-Golf                  & e-Golf                     \\
+                                                            & ID 3 1ST                & ID                         \\ \hline
+\end{tabular}
+\end{table}
+
+
+According to the information provided by the portal, potencial electric cars per manufacturer in the data set would be: 
+
+-Audi: A3, A6, A7, A8, Q2, Q3, Q5, Q7, Q8, R8
+-BMW:7 Series, i3, i8, X1, X2, X3, X5
+-Mercedes: GLC, C Class, C300e, CLA, GLE350de
+-VW: Arteon, Passat, Tiguan, Touareg, Touran
+
+According to the assumptions, cars with engine lower or equal to 0.6, automatic transmission, with _hybrid_ or _"other"_ type of fuel and intersecting with the list from the portal could be recategorized as _"fuelType"_ electric.
+
+The price was converted to miles of £ and the mileage to miles to facilite the results interpretation.
+
+
+```{r}
+elecweb<-c("A3","A6","A7","A8","Q2","Q3","Q5", "Q7","Q8","R8","7 Series","i3",
+           "i8","X1","X2","X3","X5","GLC","C Class","C300e","CLA","GLE350de",
+           "Arteon","Passat","Tiguan","Touareg","Touran")
+
+#table(df0$fuel,df0$engineSize)
+#table(df0$manufacturer,df0$model)
+#table(df0$model)
+#df1[df1$engineSize <= 0.6 & df1$transmission != , ]
+#df1[df1$model %in% elecweb, ]
+
+df3<-df2
+df3$fuelType<-ifelse((df3$engineSize <= 0.6 & (df3$fuelType == "Hybrid"|
+                                                 df2$fuelType == "Other") & 
+                        df3$model %in% elecweb), "Electric", df3$fuelType) 
+
+
+df3$price<-df3$price*0.001
+df3$mileage<-df3$mileage*0.001
+df<-df3
+df[sapply(df, is.character)] <- lapply(df[sapply(df, is.character)], as.factor)
+
+df<-df[,c("price","year","mileage","tax","mpg","engineSize",
+          "manufacturer","model","transmission","fuelType")]
+
+numy_var<-select_if(df, is.numeric)
+caty_var<-select_if(df, is.factor)
+
+#Keep information in an .Rdata file:
+save(list=c("df"),file="MyOldCars-RawDiana.RData")
+```
+
+# Exploratory analysis
+
+To have a better understanting of data behavior, some univariate exploration tools were used. A summary of selected dataset is displayed:
+
+```{r, message=FALSE, include = FALSE}  
+library(summarytools)
+st_options(
+  plain.ascii = FALSE, 
+  style = "rmarkdown",
+  dfSummary.style = "grid",
+  dfSummary.valid.col = FALSE,
+  dfSummary.graph.magnif = .52,
+  subtitle.emphasis = FALSE,
+  tmp.img.dir = "/tmp"
+)
+```
+
+```{r, results='asis', message=FALSE, warning=FALSE}  
+define_keywords(title.dfSummary = "Data Frame Summary in PDF Format")
+dfSummary(df)
+
+
+p <- ggpairs(df[,-8], 
+        lower = list(continuous = wrap("smooth",size=0.01,alpha = 0.05,
+                                       col='#e31a1c')))
+
+p + theme(axis.text.x = element_text(angle = 90, hjust = 1, size=5,color="gray"),
+          axis.text.y = element_text(angle = 180, hjust = 1, size=5,color="gray"))
+
+```
+
+From this summary:
+
+- In this particular dataset, there is an approximate range of price between £2.000 and £138.000. The mean price of a car is around £19.900 and this variable does not present a normal distribution, has a trend to lower values.
+
+- The oldest car is from 2002 and the newest car is model 2020. The average is 2017. As well, most of the cars are recent from recent years.
+
+- The mileage of the cars varies between 5 and 131925 miles. The average per car is 16.197 miles. Majority of cars have lower values of mileage.
+
+- Tax figures are between 0 an 570, with a mean value o f 145. However, the most of cars have a road tax between 115 and 125. 
+
+- Regarding the miles per galon per car, the mean value is 53,3 values, but the most of values are below the mean.
+
+- The majority of cars in data set are fueled by diesel.
+
+- All the numeric variables including price, present outlier data.
+
+**Outliers**
+
+In accordance with the summary table, there is presence of univariate outlier values per column.
+
+```{r, message=FALSE, warning=FALSE}
+a<-names(numy_var)
+a<-as.list(a)
+fun02<-function(i){index=grep(i,names(numy_var))
+                   nm=paste0(i)
+                   assign(paste("g",i,sep=""),
+                   ggplot(numy_var, aes(numy_var[,index])) +  
+                   geom_boxplot(fill='#A4A4A4', outlier.colour="red", 
+                                  outlier.shape=10, outlier.size=1)+
+                   labs(title=nm, x=NULL, y=NULL)) +
+                   theme(plot.title = element_text(size = rel(0.7),face ="bold",
+                                                   hjust = 0.5),
+                        axis.title.y = element_text(size = rel(0.6)),
+                        axis.text = element_text(size = rel(0.6)))
+                   }
+boxplots<-lapply(a,fun02)
+do.call(grid.arrange, boxplots)
+
+fun03<-function(x){out <- boxplot.stats(x)$out # identifying outlier values
+                   out_ind <- which(x %in% c(out)) #identifying rows with them
+                   print(out_ind)
+                   print(length(out_ind))}
+sapply(numy_var,fun03)
+
+```
+
+Outliers are present in all the numerical variables as stated previously:
+
+- High outliers values associated to variables: price (44 cars), mileage (21 cars) and mpg (14 cars).
+- Low outliers values associated to variables: year (13 cars).
+- Variables with both, low and high values: tax (280) and engine size (144).
+
+To identify multivariate outliers was necessary to ommit variable tax. This variable is highly correlated positively with engineSize and negatively with mpg, and present high number of univariate outliers. As well in minimum correlated with price variable.
+
+```{r, message=FALSE}  
+mout <- Moutlier( numy_var[,-c(4)], quantile = 0.99, plot=F )
+par(mfrow=c(1,1))
+plot( mout$md, mout$rd )
+abline( h=mout$cutoff, lwd=2, col="red")
+abline( v=mout$cutoff, lwd=2, col="red")
+
+llmout <- which((mout$md>mout$cutoff) & (mout$rd > mout$cutoff) )
+llmout
+
+kable(df[llmout,],table.attr = "style='width:30%;'")
+
+mout$md[llmout]
+df$mout <- 0
+df$mout[ llmout ] <- 1
+df$mout <- factor( df$mout, labels = c("MvOut.No","MvOut.Yes"))
+
+```
+
+Checking missing data in the selected data frame:
+
+```{r, results='asis', message=FALSE}  
+vis_dat(df, sort_type = TRUE, palette = "cb_safe")
+```
+
+As shown, there are no duplicated data. 
+
+# Responses
+
+1. Determine if the response variable (price) has an acceptably normal distribution. Address test to discard serial correlation.
+
+```{r, message=FALSE, warning=FALSE, tidy=FALSE}
+# Histogram with density plot price variable
+ggplot(df, aes(x=price)) + geom_histogram(aes(y=..density..),
+                                             colour="gray",
+                                             fill="gray",binwidth=30 ) +
+  geom_density(alpha=.2, fill="#FF6666")
+
+#Normality and serial correlation test
+shapiro.test(df$price)
+descdist(df$price)
+acf(df$price)
+dwtest(df$price~1)
+```
+According to the graphic analysis and the shapiro-wilk test, the price variable does not follow a normal distribution and also present serial correlation. The Cullen and Frey graph suggests a lognormal distribution.
+
+Hence, the response variable is transformed using Box-Cox, which suggests a better approach for modelling.
+
+2. Indicate by exploration of the data which are apparently the variables most associated with the response variable (use only the indicated variables).
+
+To identify the relationship of the response variable with the explanatory, the first tool used is the correlation matrix for numerical data.
+
+```{r, tidy=FALSE}
+
+corr<-cor(numy_var)
+
+corrplot(corr,cex.main=0.7,method = c("square"),
+         number.cex = 0.5,tl.cex=0.7,tl.col="gray31",
+         cl.align="c",tl.offset = 0.1,addCoef.col=TRUE)
+
+
+numlogy_var<-numy_var
+numlogy_var$price<-log(numlogy_var$price)
+#head(numlogy_var)
+corrlog<-cor(numlogy_var)
+
+corrplot(corrlog,cex.main=0.7,method = c("circle"),
+         number.cex = 0.5,tl.cex=0.7,tl.col="gray31",cl.align="c",
+         tl.offset = 0.1,addCoef.col=TRUE)
+
+```
+The variable with the highest correlation with price is the engine size. Higher engine cars present higher prices, followed by year and the tax. On the opposite, cars with lower mileage or miles per gallon values present higher prices. 
+
+As well, is used the continuous variable description of the package _factoMineR_ to obtain insights for numerical and categorical variables:
+
+```{r, tidy=FALSE}
+con <- condes(df, num.var=1, proba = 0.01 )
+con$quanti
+con$quali
+```
+The most correlated qualitative variable with the response variable is model with 64,4%.
+
+3. Define a polytomic factor f.age for the covariate car age according to its quartiles and argue if the average price depends on the level of age. Statistically justify the answer.
+
+```{r}
+# Defining the factor variable required
+df$age<-2021-df$year
+df$quartile_age <- ntile(df$age, 4)  
+df$quartile_age<-as.factor(df$quartile_age)
+#kable(table(df$quartile_age, df$year))
+levels(df$quartile_age)<-c("Less2Years","2to4Years","4to5Years","More5Years")
+#ggpairs(df[,c(4,12)], aes(color = df$quartile_age, alpha = 0.5))
+
+res.cat <- catdes(df[,c("price","quartile_age")], num.var=2, proba = 0.01 )
+res.cat$quanti
+
+tapply(df$price, df$quartile_age, mean ) 
+
+ggplot(df, aes(x=price, y=quartile_age)) + 
+  geom_boxplot(outlier.colour="red", outlier.shape=8,
+                outlier.size=1, notch=FALSE)
+
+kruskal.test(price~quartile_age, data = df )
+```
+The mean price for cars with more than 4 years of age seem to be less than the others, taking into account mean summary across levels of age (Less than 2 years, 2 to 4 years, 4 to 5 years and more than five years). As expected Less than 2 years old cars have higher mean prices. All the levels present outlier price data.
+
+Mean prices remarkable higher than the rest hypothesis is absolutely rejected according to the non-parametric Kruskal-Wallis homogeneity test for means (pvalue 2.2e-16).
+
+4. Calculate and interpret the anova model that explains car price according to the age factor and the fuel type.
+
+```{r}
+m1 <- lm( price ~ ., data=df[,c("price","quartile_age","fuelType")])
+summary(m1)
+summary(Anova(m1))
+```
+
+The model including both factor variables shows a low proportion of the variance in the response variable explained by age and the fueltype of the cars with The R-squared of the the 35%. The car prices down related with their age.
+
+The ANOVA Fisher tests finds significant both variables with a level of significance of 95%. This could be given by the level of petrol of fuelType as the most common value in the variable.
+
+5. Do you think that the variability of the price depends on both factors? Does the relation between price and age factor depend on fuel type?
+
+```{r}
+options(contrasts=c("contr.treatment","contr.treatment"))  # Set parametrization for factors
+kruskal.test(df$price, df$fuelType) 
+
+m0 <- lm( price ~ 1, data = df)
+m1 <- lm( price ~ fuelType+quartile_age, data = df)
+m2 <- lm( price ~ fuelType*quartile_age, data = df)
+
+
+summary(m1)
+summary(m2)
+anova(m2)
+
+
+# Interactions needed?
+anova(m2,m1)
+
+par(mfrow=c(1,2))
+df[,c("price","quartile_age","fuelType")] %>% 
+  ggplot() +
+  aes(x = quartile_age, color = fuelType, group = fuelType, y = price) +
+  stat_summary(fun = mean, geom = "point") +
+  stat_summary(fun = mean, geom = "line")
+
+df[,c("price","quartile_age","fuelType")] %>% 
+  ggplot() +
+  aes(x = fuelType, color = quartile_age, group = quartile_age, y = price) +
+  stat_summary(fun = mean, geom = "point") +
+  stat_summary(fun = mean, geom = "line")
+
+
+```
+According to the Kruskal-Wallis sum test for the fuelType factor is not significant for modelling mean prices (0.1572). Comparing the three models including a constant, an interaction between fuelType and age and one including both variables.
+
+The summary of the model including both variables shows no significance of the variable fuelType with the exception of the Petrol category and a multiple R-squared of the 35%. The ANOVA analysis of the interaction model, reinforce this indicating there is no significance of the fuelType variable as is on the age variable.
+
+Finally, the interaction plots show paralell behavior of the levels of the factors with an exception of the Petrol level in cars with 4 to 5 years old.
+
+6. Calculate the linear regression model that explains the price from the age: interpret the regression line and assess its quality.
+
+```{r, warning=FALSE,message=FALSE}
+m3 <- lm( price ~ quartile_age, data=df[,c("price","quartile_age","fuelType")])
+summary(m3)
+#Residual analysis
+plot(m3)
+bptest(m3)# Null Hypothesis: Homoskedasticity holds - BP = 0.57522, df = 2, p-value = 0.7501
+
+```
+The model including the age factor shows a significance of 99.9% per level. The residual plot displays not a normal distribution in the higher values related residuals and according to p-value of Breusch-pagan the null hypothesis of Homoskedastic test should be rejected.
+
+7. What is the percentage of the price variability that is explained by the age of the car?
+
+```{r}
+summary(m3)
+af <- anova(m3)
+ afss <- af$"Sum Sq"
+ print(cbind(af,PctExp=afss/sum(afss)*100))
+```
+The model using the age factor explains the 34.87% of the variance in the price variable. 
+
+8. Do you think it is necessary to introduce a quadratic term in the equation that relates the price to its age?
+
+```{r}
+m4 <- lm( price ~ df$age + poly(df$age,2), data=df[,c(1,12)])
+summary(m4)
+marginalModelPlots(m4) 
+```
+A model using a quadratic term of the age shows a significance at the 99.9% of confidence of the squared age. This is confirmed by the marginal plots of the model using this variable.
+
+9. Are there any additional explanatory numeric variables needed to the car price? Study collinearity effects.
+
+To response this question, a model including each numerical variable is performed and compared with the one with factor age. In accordance with the exploratory analysis tax variable is not taking into account.
+
+```{r}
+m0<-lm(price~1,data = df[,c("price","quartile_age","mileage","mpg","engineSize")])
+
+m4<-lm(price ~., data = df[,c("price","quartile_age","mileage")])
+anova(m0,m4)
+anova(m3,m4)
+vif(m4)
+
+m5<-lm(price ~., data = df[,c("price","quartile_age","mileage","mpg")])
+anova(m0,m5)
+anova(m4,m5)
+vif(m5)
+
+m6<-lm(price ~., data = df[,c("price","quartile_age","mileage","mpg","engineSize")])
+anova(m0,m6)
+anova(m5,m6)
+vif(m6)
+
+```
+According to the methods, the resting of numerical variables has significance inside the model. The Variance Inflation Factor close to one per each model indicates there is no correlation between the given predictors. 
+
+10. After controlling by numerical variables, indicate whether the additive effect of the available factors on the price are statistically significant.
+
+```{r}
+options(contrasts=c("contr.treatment","contr.treatment"))  # Set parametrization for factors
+
+m7 <- lm(price~.,data = df[,c("price","mileage","mpg","engineSize")])
+
+# Net-effects: For numerical: numerical | numerical+age factor or
+# for age factor: age factor | numerical 
+anova( m7, m6 ) 
+anova( m6, m7 ) 
+
+```
+According to the Fisher Test in the ANOVA analysis, for both cases, numerical variables adding age factor variable and, age factor adding the numerical variable adding the correspondant variables are significant with a p-value of 99.9%.
+
+11. Select the best model available so far. Interpret the equations that relate the explanatory variables to the answer (rate).
+
+So far the best model includes the age factor variable and numerical variables: mileage, mpg and engineSize. However, taking into account the rest of categorical variables available in the data set again is used the stepwise regression method to evaluate the best model. The mpg variable is removed according to a considerable increment in the Variance Inflation Factor.
+
+```{r, message=FALSE, warning=FALSE}
+data<-df[,c("price","quartile_age","mileage","engineSize","model","transmission")]
+
+full.model <- lm(price ~., data = data)
+# Stepwise regression model
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+vif(step.model)
+plot(step.model)
+```
+In general terms, the equation of the selected model is explained:
+
+- The mean price of the cars decreases when age increases, per each level of the category established in the variable, the mean price: -3.62 miles of £ if age is between 2 to 4 years, -7.27 £ if age is between 4 to 5 years, and -9.66 £ if age is more than 5 years, taking as fixed the rest of the variables in the model.
+
+- The mean price of the cars decreases when one unit of mileage increases in 0.63 miles of £ being fixed the rest of the variables in the model.
+
+- The mean price of the cars increases when one unit of engine increases in 5.88 miles of £ being fixed the rest of the variables in the model.
+
+- Depending on the model of the car, the price of the cars would varied between -5.98 and 102.65 miles £, being fixed the rest of the variables in the model.
+
+12. Study the model that relates the logarithm of the price to the numerical variables. 
+
+```{r}
+data$price<-log(data$price)
+m8 <- lm( price ~ .,data=data)
+summary(m8)
+Anova(m8)
+```
+The log transformation of the variable response price, increases  model that explains all the variation in the response variable around its mean.
+Usually, the larger the R2, the better the regression model fits your observations. However, this guideline has important caveats that I’ll discuss in both this post and the next post.
+
+13. Once explanatory numerical variables are included in the model, are there any main effects from factors needed?
+
+```{r}
+
+# Gross-effects: Adding numeric variables and factors to a model without any variable
+anova( m0, m8)
+anova( m3, m8)
+
+```
+
+Including the factor variables model and transmission increases the R squared of the model. Even though some levels of this categorical variables are not significant, the Fisher test, shows the variables are significant compared with a constant model and as well considering numeric variables with an alpha =0.01.
+
+
+14. Graphically assess the best model obtained so far.
+
+```{r}
+plot(m8)
+```
+The selected model corresponding to: log-transformed response variable, numeric and categorical variables shows: for the scaled location plot the red line is approximately horizontal, then the average magnitude of the standardized residuals isn’t changing much as a function of the fitted values. The QQPlot shows a general normal distribution with a deviation in high values. Cook-s distances graph shows there is low number of influential residuals in this model.
+
+15. Assess the presence of outliers in the studentized residuals at a 99% confidence level. Indicate what those observations are.
+
+In the selected model there is presence of leverage and influential data as shown in the graphs and listed in the next output.
+
+
+```{r}
+# Default residual analysis:
+par(mfrow=c(2,2))
+
+# Metrics related to residuals:
+par(mfrow=c(1,1))
+residualPlot(m8)
+rstan <- rstandard(m8) #Standardized residuals
+rstud <- rstudent(m8) #Studentized residuals
+
+```
+
+
+16. Study the presence of a priori influential data observations, indicating their number according to the criteria studied in class.
+
+Using the moutlier function from chemometrics package. with a significance of 99%, there are 19 influential data observations a priori. 
+
+```{r}
+res <- Moutlier(data[,c(1,3,4)],quantile=0.99)
+par(mfrow=c(1,1))
+plot( res$md, res$rd )
+abline( h=res$cutoff, lwd=2, col="red")
+abline( v=res$cutoff, lwd=2, col="red")
+
+llmout <- which((res$md>mout$cutoff) & (res$rd > mout$cutoff) )
+
+res$md[llmout]
+data$mout <- 0
+data$mout[ llmout ] <- 1
+data$mout <- factor( df$mout, labels = c("MvOut.No","MvOut.Yes"))
+
+kable(data[llmout,],table.attr = "style='width:30%;'")
+```
+
+17. Study the presence of a posteriori influential values, indicating the criteria studied in class and the actual atypical observations.
+
+For the a posteriori influential values it is used the Cook's distance and according to the DFBeta
+```{r}
+
+dcook <- cooks.distance(m8) #Cook distance
+#dcook
+leverage <- hatvalues (m8) #Leverage of observations
+#leverage
+
+plot(m8$fitted.values, rstan) #Standardized residuals vs fitted values
+plot(m8$fitted.values, rstud) #Studentized residuals vs fitted values
+
+influencePlot (m8, id= list (n=5, method = "noteworthy"))
+llaux<-Boxplot (abs(rstudent (m8)), id=list(n=Inf, labels = row.names (df)))
+
+# Detection of influential data:
+matplot(dfbetas(m8), type="l", col=3:4,lwd=2)
+lines(sqrt(cooks.distance(m8)),col=1,lwd=3)
+abline(h=2/sqrt(dim(data)[1]), lty=3,lwd=1,col=5)
+abline(h=-2/sqrt(dim(data)[1]), lty=3,lwd=1,col=5)
+abline(h=sqrt(4/(dim(data)[1]-length(names(coef(m8))))), lty=3,lwd=1,col=6)
+llegenda<-c("Cook d", names(coef(m8)), "DFBETA Cut-off", "Ch-H Cut-off")
+
+
+# Dffits: another metric for influential data:
+par(mfrow=c(1,1))
+plot(dffits(m8),type="l",lwd=3)
+pp=length(names(coef(m8)))
+lines(sqrt(cooks.distance(m8)),col=3,lwd=2)
+abline(h=2*(sqrt(pp/(nrow(m8)-pp))),lty=3,lwd=1,col=2)
+abline(h=-2*(sqrt(pp/(nrow(m8)-pp))),lty=3,lwd=1,col=2)
+llegenda<-c("DFFITS","DFFITS Cut-off","Cooks D")
+ 
+# AIC and BIC:
+AIC(m8)
+AIC(m8, k=log(nrow(data)))
+
+```
+
+18. Given a 5-year old car, the rest of numerical variables on the mean and factors on the reference level, what would be the expected price with a 95% confidence interval?
+
+
+```{r}
+newdata = data.frame(quartile_age="4to5Years", mileage=22.402, engineSize=1.937, model="1 Series",transmission= "Automatic")
+predict(m8, newdata, interval='prediction', alpha=0.05)
+```
+£ 2,283. According to the confidence interval a value between £2500 and £3140.
+
+
+19. Summarize what you have learned by working with this interesting real dataset
+
+The average price of the cars of the subset can be modelled from key variables  as the age, the model of the car and engine size however, the market of cars is quiet variable but still linear models could characterize its behavior.
+
+

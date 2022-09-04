@@ -1,0 +1,241 @@
+---
+title: "Group 1: Multivariate analysis of australian climate data"
+author: "Andrea Iglesias Munilla, Kathryn Weissman, Diana Galindo González, Mateo Jácome González y Pedro González Prado"
+date: "`r Sys.Date()`"
+output:
+  html_notebook:
+   toc: true
+   toc_depth: 2
+   toc_float: true
+   theme: cerulean
+   highlight: tango
+   #collapsed: false
+   #smooth_scroll: false
+   number_sections: true
+   
+#theme: readable
+#highlight: success #https://bootswatch.com/3/
+#subtitle: Report
+---
+
+```{r setup, include=FALSE}
+rm(list=ls(all=TRUE))
+
+# Required packages
+pkgs<-c("rstudioapi","tidyverse","DT","naniar","tidyr","sf","ggplot","ggplot2","cowplot", "googleway", "ggplot2", "ggrepel", "VIM","ggspatial", "libwgeom", "sf", "rnaturalearth", "rnaturalearthdata","gridExtra","grid","ggplot2","lattice","FactoMineR","factoextra","corplot","heatmaply")
+
+# Non-installed packages
+inspkgs<-pkgs[!pkgs %in% installed.packages()]
+for(libs in inspkgs) install.packages(libs)
+
+# Loading required
+sapply(pkgs,require,character=TRUE)
+
+#("ade4","corrplot","factoextra","FactoMineR","foreign","ggplot2","gridExtra","Hmisc","RColorBrewer","reshape2","RPostgreSQL","knitr","openxlsx","NbClust","DT","d3heatmap","heatmaply","sf","viridis","leaflet","pander","VIM","plotly")
+
+# Setting workspace
+
+current_path <- getActiveDocumentContext()$path 
+setwd(dirname(current_path ))
+
+```
+
+# Problem statement and selected dataset 
+
+This project seeks to develop, train and evaluate a statistical model that helps end-users make predictions about whether or not there will be rainfall the following day, given the weather conditions on a given day in Australia. In addition, several multivariate techniques will be implemented in order to extract key insights and relevant information from the available historical data. A better understanding of the factors influencing rainfall in Australia and how these may have changed over time given the harsh climate changes the territory has experienced in the last decade may be of use to predict future droughts and wildfire crises. 
+
+The main dataset was obtained from the repository at [Kaggle.com][1]. This dataset is built using publicly available climate data, provided by the [Australian Bureau of Meteorology][2] and measured by weather stations distributed across the country. It contains more than 100,000 daily weather observations over a 10-year period from 2007 to 2017 from 49 unique locations in Australia. These observations include temperature, rainfall, atmospheric pressure, evaporation, humidity, wind direction, and wind speed at different times during the day.  More specifically, the dataset contains 24 columns in total. Columns 2 through 22 are defined by the [Australian Government Bureau of Meteorology][2]: 
+
+
+1. **ID**: identification number of the observation.
+2. **Date**: date of the observation. 
+3. **Location**: common name for the weather station location. 
+4. **MinTemp**: minimum temperature in the 24 hours to 9am, degrees Celsius.
+5. **MaxTemp**: maximum temperature in the 24 hours from 9am, degrees Celsius.
+6. **Rainfall**: rainfall in the 24 hours to 9am, millimeters. 
+7. **Evaporation**: "Class A" pan evaporation in the 24 hours to 9am, millimeters.
+8. **Sunshine**: number of hours of bright sunshine in the 24 hours to midnight.
+9. **WindGustDir**: direction of the strongest wind gust in the 24 hours to midnight. Wind directions can be labeled as: N (North), NNE (North-Northeast), NE (Northeast), ENE (East-Northeast), E (East), ESE (East-Southeast), SE (Southeast), SSE (South-Southeast), S (South), SSW (South-Southwest), SW (Southwest), WSW (West-Southwest), W (West), WNW (West-Northwest), NW (Northwest), NNW (North-Northwest).  
+10. **WindGustSpeed**: speed of strongest wind gust in the 24 hours to midnight, km/h.
+11. **WindDir9am**: wind direction  at 9am, measured with 16 compass points. 
+12. **WindDir3pm**: wind direction at 3pm, measured with 16 compass points. 
+13. **WindSpeed9am**: average wind speed over the 10-minute period prior to 9am, km/h.
+14. **WindSpeed3pm**: average wind speed over the 10-minute period prior to 3pm, km/h.
+15. **Humidity9am**: relative humidity percentage at 9am. 
+16. **Humidity3pm**: relative humidity percentage at 3pm.
+17. **Pressure9am**:  atmospheric pressure (hpa) reduced to mean sea level at 9am.
+18. **Pressure3pm**: atmospheric pressure (hpa) reduced to mean sea level at 3pm.
+19. **Cloud9am**: fraction of sky obscured by cloud at 9am, measured in oktas, a unit of eights that describes the amount of cloud cover at any given location such as a weather station, ranging from 0 (completely clear sky) to 8 (completely covered sky). 
+20. **Cloud3pm**: fraction of sky obscured by cloud at 3pm, measured in oktas.
+21. **Temp9am**: temperature at 9am, measured in degree celsius. 
+22. **Temp3pm**: temperature at 3pm, measured in degree celsius.
+23. **RainToday**: boolean variable; Yes if precipitation (mm) in the 24 hours to 9am exceeds 1 mm, otherwise No. 
+24. **RainTomorrow**: boolean variable; Yes if the following day precipitation exceeds 1 mm, otherwise No. 
+
+
+The dataset selected covers the cities presented in the map:
+
+```{r message=FALSE, results="hide", fig.align = 'center'}
+
+
+#dirshpcities<-paste0(dirname(current_path),"/Cities.shp")
+shapecities <- st_read(paste0(dirname(current_path),"/Cities.shp"))
+shaperegions <- st_read(paste0(dirname(current_path),"/GCCSA_2021_AUST_GDA2020.shp"))
+
+ggplot(data = shaperegions) +
+    geom_sf(aes(fill = '#d6604d')) + 
+    geom_sf(data = shapecities, size = 3, shape = 19, fill = "#4d4d4d")
+
+```
+
+Table 1 shows a small subset of the data, including only selected observations and attributes. . 
+
+```{r data}
+
+# Loading data set
+
+rain_data <- read.csv("weatherAUSOriginal.csv", stringsAsFactors=TRUE)
+str(rain_data)
+rain_data$Date <- as.Date(rain_data$Date)
+
+df <- subset(rain_data, Date < median(rain_data$Date) & Location %in%    c("Sydney","AliceSprings","Brisbane","Cairns","Perth","Moree"))
+
+datatable(df,options = list(pageLength = 10))
+#datatable(nmcols[c(1,5,8,11,12,14,17,23:26,29,31,38:43,45,48,51,54,57,63:66,70:72),], colnames=c("Nro.","Inicial","Nombre en R","Detalle (por vereda)"),options = list(pageLength = 5))
+```
+
+# Data preparation
+
+A different project team in Group 12 chose the same data set, so this team will work with the first half of the data set, divided by date, as instructed by the lab professor on 27-Sep-2021.
+
+We will use the median date to split the data set and keep the first half.
+
+```{r missingdatagraphs}
+
+missing_stats <- colSums(is.na(df))*100/nrow(df)
+ID = c(1:nrow(df))
+df <- add_column(df, ID, .before=1)
+
+# Graph
+vis_miss(df)
+
+aggr(df, col=c('grey','#252525'), numbers=TRUE, sortVars=TRUE, labels=names(df), cex.axis=.5, gap=1, ylab=c("Missing data"," "),border=NA)
+
+```
+
+# Detecting Missing Values
+```{r}
+#Display a table that shows the number of rows with a certain number of NA's
+mis_ind = rowSums(is.na(df))
+table(mis_ind)
+```
+```{r}
+#Plot the distribution of the number of NA's per row
+hist(mis_ind)
+```
+In order to build the model, observations should be removed that are missing too much data. Observations that have NA values above the 90th percentile of the NA count distribution should be removed.
+
+```{r}
+#Check 90th percentile of missing data and save value to variable
+rm_NA <- quantile(mis_ind,0.90)
+```
+
+We should remove observations with more than 6 NA values.
+
+```{r}
+#Creates an index and data frame of observations that have missing data
+#above the cut-off threshold.
+m1 <- which(mis_ind > rm_NA)
+df_remove1 <- df[m1,]
+#Removes observations with too many NA's from data frame used for modeling
+df <- df[-c(m1),]
+
+#Summarizes the number of NA's per variable.
+mis_col = colSums(is.na(df))
+mis_col
+
+#Check number of unique locations and summary
+num_unique_locations <- length(unique(df$Location))
+summary(df$Location)
+plot(df$Location)
+#Check number of observations below the 10% quantile 
+rm_Loc <- quantile(summary(df$Location),0.1)
+```
+
+Locations with less than 1101 observations will be removed since they are below the 10th percentile of number of recorded observations.
+
+```{r}
+#Creates an index and data frame of Locations that have missing data
+#below the cut-off threshold.
+m2 <- which(summary(df$Location) < rm_Loc)
+loc_remove <- levels(df$Location)[c(m2)]
+df_remove2 <- subset(df,Location %in% c(loc_remove))
+#REMOVE OBSERVATIONS FROM SPECIFIC LOCATIONS
+df <- subset(df,!Location %in% c(loc_remove))
+```
+5 locations were removed from the data set because of too few observations. They were Katherine, MountGinini, Newcastle, Nhil, and Uluru.
+
+```{r}
+#CHECK NUMBER OF UNIQUE DATES AND TIME SPAN
+num_unique_dates <- length(unique(df$Date))
+time_difference <- as.numeric((max(df$Date)-min(df$Date)), units="days")
+total_years <- time_difference/365
+```
+There are weather observations for 1951 unique dates across 44 unique locations  over the time span of approximately 5.5 years.
+
+```{r}
+#CALCULATE NUMBER OF MISSING DATES
+num_missing_dates <- time_difference - num_unique_dates
+```
+
+There are 1951 unique dates in the data set, however there is a difference of 2039 days between the first observation and the last observation, which means there are 88 dates missing in the time span.
+
+
+```{r , message=FALSE, results='asis',fig.align = 'center'}
+nums <- unlist(lapply(df, is.numeric)) 
+numrain_data<-df[ , nums]
+numrain_data<-subset(numrain_data,complete.cases(numrain_data))
+a<-names(numrain_data)
+a<-as.list(a)
+
+
+
+
+
+
+fun02<-function(i){index=grep(i,names(numrain_data))
+                   bw <- nclass.Sturges(numrain_data[,index]) # Freedman-Diaconis
+                   nm=paste0(i)
+                   assign(paste("g",i,sep=""),
+                   ggplot(numrain_data, aes(numrain_data[,index])) +  
+                   geom_histogram(bins = bw,aes(y=..density..), fill="#de2d26") +
+                   geom_density(alpha=.35, fill="#08519c",color = NA)  +
+                   geom_vline (aes(xintercept=median(numrain_data[,index])),color="#08519c", size=1) + 
+                   labs(title=nm, x=NULL, y="UPAS")) +
+                   theme(plot.title = element_text(size = rel(0.7),face ="bold",hjust = 0.5),
+                        axis.title.y = element_text(size = rel(0.4)),
+                        axis.text = element_text(size = rel(0.4)))
+                   }
+Histos<-lapply(a[-1],fun02)
+do.call(grid.arrange, Histos)
+
+```
+Preliminary correlation
+
+```{r , message=FALSE,fig.align = 'center'}
+# Initial correlation matrix
+cor_org<-cor(numrain_data)
+
+# Interactive correlation matrix
+heatmaply(round(cor_org, 2),symm=TRUE,colors="RdGy",revC=TRUE,dendrogram="none",cexRow=0.6,cexCol=0.6, main="Correlation matrix")
+```
+
+
+
+
+# References
+
+
+
+[1]: https://www.kaggle.com/jsphyg/weather-dataset-rattle-package> "Young, J. (2017, December) Rain in Australia: Predict next-day rain in Australia, Version 2. Retrieved 18 September 2021."
+[2]: http://www.bom.gov.au/climate/data/ "Commonwealth of Australia Bureau of Meteorology 2021, accessed 19 September 2021"
