@@ -1,0 +1,7 @@
+﻿-----READ ME-----
+
+
+-In order to run the script correctly, you should first download all the files included.
+-Open "Preprocess.ypnb" and check that the path is correct according to the file location. Then, run all.
+At this point you will have a new dataset generated called "kickafterpreprocess.csv" and two Profile reports "Profile_KickInitial.html" and "Profile_kickafterpreprocess.html". To open them correctly download both and open them from the local environment.
+-Modeling: you will have different scripts that will represent each algorithm applied for each of the dataset considered, one with numerical variables and another one with only categorical (where we transformed numerical into categorical). Each of them will load "kickafterpreprocess.csv" and split data into train/validation/test, checking and comparing results between the different models used.
